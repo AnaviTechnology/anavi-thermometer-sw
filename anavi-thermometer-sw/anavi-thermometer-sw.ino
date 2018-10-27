@@ -584,21 +584,35 @@ void loop()
         float humidity = dht.readHumidity();
         float temp = dht.readTemperature();
 
+        String air="";
+        String hum="";
         if (!isnan(humidity) && !isnan(temp))
         {
-          String air="Air "+String(temp, 1)+"C ";//+String(humidity, 0)+"%";
-          Serial.println(air);
+            air="Air "+String(temp, 1)+"C ";//+String(humidity, 0)+"%";
+            Serial.println(air);
 
-          String hum="Humidity "+String(humidity, 0)+"%";
-          Serial.println(hum);
+            hum="Humidity "+String(humidity, 0)+"%";
+            Serial.println(hum);
         }
 
+        String water="";
         if (0 < sensors.getDeviceCount())
         {
             sensors.requestTemperatures();
-            String water="Water "+String(sensors.getTempCByIndex(0), 1)+"C";
+            water="Water "+String(sensors.getTempCByIndex(0), 1)+"C";
             Serial.println(water);
         }
+
+        // Write on OLED display
+        // Clear the internal memory
+        u8g2.clearBuffer();
+        // Set appropriate font
+        u8g2.setFont(u8g2_font_ncenR14_tr);
+        u8g2.drawStr(0,14, air.c_str());
+        u8g2.drawStr(0,39, hum.c_str());
+        u8g2.drawStr(0,64, water.c_str());
+        // Transfer internal memory to the display
+        u8g2.sendBuffer();
     }
 
     // Handle gestures at a shorter interval
