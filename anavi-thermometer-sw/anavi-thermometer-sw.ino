@@ -202,6 +202,15 @@ void setup()
     //in seconds
     //wifiManager.setTimeout(120);
 
+    // Write on OLED display
+    // Clear the internal memory
+    u8g2.clearBuffer();
+    // Set appropriate font
+    u8g2.setFont(u8g2_font_ncenR14_tr);
+    u8g2.drawStr(0,14, "Connecting...");
+    // Transfer internal memory to the display
+    u8g2.sendBuffer();
+
     //fetches ssid and pass and tries to connect
     //if it does not connect it starts an access point with the specified name
     //here  "AutoConnectAP"
