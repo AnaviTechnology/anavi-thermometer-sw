@@ -607,16 +607,19 @@ void loop()
             publishSensorData("water/temperature", "temperature", wtemp);
         }
 
-        // Write on OLED display
-        // Clear the internal memory
-        u8g2.clearBuffer();
-        // Set appropriate font
-        u8g2.setFont(u8g2_font_ncenR14_tr);
-        u8g2.drawStr(0,14, air.c_str());
-        u8g2.drawStr(0,39, hum.c_str());
-        u8g2.drawStr(0,64, water.c_str());
-        // Transfer internal memory to the display
-        u8g2.sendBuffer();
+        if ( (0 < air.length()) || (0 < hum.length()) || (0 < water.length()) )
+        {
+            // Write on OLED display
+            // Clear the internal memory
+            u8g2.clearBuffer();
+            // Set appropriate font
+            u8g2.setFont(u8g2_font_ncenR14_tr);
+            u8g2.drawStr(0,14, air.c_str());
+            u8g2.drawStr(0,39, hum.c_str());
+            u8g2.drawStr(0,64, water.c_str());
+            // Transfer internal memory to the display
+            u8g2.sendBuffer();
+        }
     }
 
     // Handle gestures at a shorter interval
