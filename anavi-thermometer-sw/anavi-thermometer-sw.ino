@@ -590,17 +590,21 @@ void loop()
         {
             air="Air "+String(temp, 1)+"C ";//+String(humidity, 0)+"%";
             Serial.println(air);
+            publishSensorData("air/temperature", "temperature", temp);
 
             hum="Humidity "+String(humidity, 0)+"%";
             Serial.println(hum);
+            publishSensorData("air/humidity", "humidity", humidity);
         }
 
         String water="";
         if (0 < sensors.getDeviceCount())
         {
             sensors.requestTemperatures();
-            water="Water "+String(sensors.getTempCByIndex(0), 1)+"C";
+            float wtemp = sensors.getTempCByIndex(0);
+            water="Water "+String(wtemp,1)+"C";
             Serial.println(water);
+            publishSensorData("water/temperature", "temperature", wtemp);
         }
 
         // Write on OLED display
