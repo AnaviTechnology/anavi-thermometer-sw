@@ -48,7 +48,7 @@ const int pinButton = 0;
 bool power = false;
 
 unsigned long sensorPreviousMillis = 0;
-const long sensorInterval = 5000;
+const long sensorInterval = 10000;
 
 unsigned long mqttConnectionPreviousMillis = millis();
 const long mqttConnectionInterval = 60000;
@@ -97,6 +97,11 @@ void setup()
     // put your setup code here, to run once:
     Serial.begin(115200);
     Serial.println();
+    u8g2.begin();
+    dht.begin();
+    sensors.begin();
+
+    delay(10);
 
     //LED
     pinMode(pinAlarm, OUTPUT);
@@ -575,6 +580,25 @@ void loop()
     {
         sensorPreviousMillis = currentMillis;
         handleSensors();
+
+        float humidity = dht.readHumidity();
+        float temp = dht.readTemperature();
+
+        if (!isnan(humidity) && !isnan(temp))
+        {
+          String air="Air "+String(temp, 1)+"C ";//+String(humidity, 0)+"%";
+          Serial.println(air);
+
+          String hum="Humidity "+String(humidity, 0)+"%";
+          Serial.println(hum);
+        }
+
+        if (0 < sensors.getDeviceCount())
+        {
+            sensors.requestTemperatures();
+            String water="Water "+String(sensors.getTempCByIndex(0), 1)+"C";
+            Serial.println(water);
+        }
     }
 
     // Handle gestures at a shorter interval
