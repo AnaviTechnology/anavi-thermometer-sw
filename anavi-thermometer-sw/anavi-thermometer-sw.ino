@@ -91,6 +91,20 @@ void saveConfigCallback ()
     shouldSaveConfig = true;
 }
 
+void drawDisplay(const char *line1, const char *line2 = "", const char *line3 = "")
+{
+    // Write on OLED display
+    // Clear the internal memory
+    u8g2.clearBuffer();
+    // Set appropriate font
+    u8g2.setFont(u8g2_font_ncenR14_tr);
+    u8g2.drawStr(0,14, line1);
+    u8g2.drawStr(0,39, line2);
+    u8g2.drawStr(0,64, line3);
+    // Transfer internal memory to the display
+    u8g2.sendBuffer();
+}
+
 
 void setup()
 {
@@ -202,14 +216,7 @@ void setup()
     //in seconds
     //wifiManager.setTimeout(120);
 
-    // Write on OLED display
-    // Clear the internal memory
-    u8g2.clearBuffer();
-    // Set appropriate font
-    u8g2.setFont(u8g2_font_ncenR14_tr);
-    u8g2.drawStr(0,14, "Connecting...");
-    // Transfer internal memory to the display
-    u8g2.sendBuffer();
+    drawDisplay("Connecting...");
 
     //fetches ssid and pass and tries to connect
     //if it does not connect it starts an access point with the specified name
@@ -618,16 +625,7 @@ void loop()
 
         if ( (0 < air.length()) || (0 < hum.length()) || (0 < water.length()) )
         {
-            // Write on OLED display
-            // Clear the internal memory
-            u8g2.clearBuffer();
-            // Set appropriate font
-            u8g2.setFont(u8g2_font_ncenR14_tr);
-            u8g2.drawStr(0,14, air.c_str());
-            u8g2.drawStr(0,39, hum.c_str());
-            u8g2.drawStr(0,64, water.c_str());
-            // Transfer internal memory to the display
-            u8g2.sendBuffer();
+            drawDisplay(air.c_str(), hum.c_str(), water.c_str());
         }
     }
 
