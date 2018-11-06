@@ -53,6 +53,9 @@ const long sensorInterval = 10000;
 unsigned long mqttConnectionPreviousMillis = millis();
 const long mqttConnectionInterval = 60000;
 
+float dhtTemperature = 0;
+float dhtHumidity = 0;
+float dsTemperature = 0;
 float sensorTemperature = 0;
 float sensorHumidity = 0;
 uint16_t sensorAmbientLight = 0;
@@ -602,33 +605,29 @@ void loop()
         temp = temp - (temp*0.12);
         float humidity = dht.readHumidity();
 
-        String air="";
-        String hum="";
         if (!isnan(humidity) && !isnan(temp))
         {
-            air="Air "+String(temp, 1)+"C ";//+String(humidity, 0)+"%";
-            Serial.println(air);
+            dhtTemperature = temp;
+            dhtHumidity = humidity;
             publishSensorData("air/temperature", "temperature", temp);
-
-            hum="Humidity "+String(humidity, 0)+"%";
-            Serial.println(hum);
             publishSensorData("air/humidity", "humidity", humidity);
         }
+        String air="Air "+String(dhtTemperature, 1)+"C ";
+        Serial.println(air);
+        String hum="Humidity "+String(dhtHumidity, 0)+"%";
+        Serial.println(hum);
 
-        String water="";
         if (0 < sensors.getDeviceCount())
         {
             sensors.requestTemperatures();
             float wtemp = sensors.getTempCByIndex(0);
-            water="Water "+String(wtemp,1)+"C";
-            Serial.println(water);
+            dsTemperature = wtemp;
             publishSensorData("water/temperature", "temperature", wtemp);
         }
+        String water="Water "+String(dsTemperature,1)+"C";
+        Serial.println(water);
 
-        if ( (0 < air.length()) || (0 < hum.length()) || (0 < water.length()) )
-        {
-            drawDisplay(air.c_str(), hum.c_str(), water.c_str());
-        }
+        drawDisplay(air.c_str(), hum.c_str(), water.c_str());
     }
 
     // Handle gestures at a shorter interval
