@@ -597,8 +597,10 @@ void loop()
         sensorPreviousMillis = currentMillis;
         handleSensors();
 
-        float humidity = dht.readHumidity();
         float temp = dht.readTemperature();
+        // Decrease the temperature with 12% based on an empirical research and a comparison with DS18B20
+        temp = temp - (temp*0.12);
+        float humidity = dht.readHumidity();
 
         String air="";
         String hum="";
