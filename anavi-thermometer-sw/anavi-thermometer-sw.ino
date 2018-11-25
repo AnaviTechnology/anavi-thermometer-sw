@@ -53,6 +53,11 @@ const long sensorInterval = 10000;
 unsigned long mqttConnectionPreviousMillis = millis();
 const long mqttConnectionInterval = 60000;
 
+// Set temperature coefficient for calibration depending on an empirical research with
+// comparison to DS18B20 and other temperature sensors. You may need to adjust it for the
+// specfic DHT22 unit on your board
+const float temperatureCoef = 0.9;
+
 float dhtTemperature = 0;
 float dhtHumidity = 0;
 float dsTemperature = 0;
@@ -601,8 +606,8 @@ void loop()
         handleSensors();
 
         float temp = dht.readTemperature();
-        // Decrease the temperature with 12% based on an empirical research and a comparison with DS18B20
-        temp = temp - (temp*0.12);
+        // Adjust temperature depending on the calibration coefficient
+        temp = temp*temperatureCoef;
         float humidity = dht.readHumidity();
 
         if (!isnan(humidity) && !isnan(temp))
