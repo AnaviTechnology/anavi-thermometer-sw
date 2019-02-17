@@ -515,7 +515,7 @@ void sensorWriteData(int i2cAddress, uint8_t data)
 
 void handleBH1750()
 {
-    Wire.begin();
+    //Wire.begin();
     // Power on sensor
     sensorWriteData(sensorBH1750, 0x01);
     // Set mode continuously high resolution mode
@@ -599,6 +599,12 @@ void loop()
         mqttReconnect();
     }
 
+    // Handle gestures at a shorter interval
+    if (isSensorAvailable(APDS9960_ADDRESS))
+    {
+        detectGesture();
+    }
+
     const unsigned long currentMillis = millis();
     if (sensorInterval <= (currentMillis - sensorPreviousMillis))
     {
@@ -633,12 +639,6 @@ void loop()
         Serial.println(water);
 
         drawDisplay(air.c_str(), hum.c_str(), water.c_str());
-    }
-
-    // Handle gestures at a shorter interval
-    if (isSensorAvailable(APDS9960_ADDRESS))
-    {
-        detectGesture();
     }
 
     // Press and hold the button to reset to factory defaults
