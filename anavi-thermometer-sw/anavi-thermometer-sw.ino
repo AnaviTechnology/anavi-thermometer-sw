@@ -352,7 +352,7 @@ void factoryReset()
         else
         {
             // Cancel reset to factory defaults
-            Serial.println("Reset tp factory defaults cancelled.");
+            Serial.println("Reset to factory defaults cancelled.");
             digitalWrite(pinAlarm, LOW);
         }
     }
