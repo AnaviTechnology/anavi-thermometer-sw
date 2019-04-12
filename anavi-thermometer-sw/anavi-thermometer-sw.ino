@@ -230,7 +230,7 @@ void setup()
     //if it does not connect it starts an access point with the specified name
     //here  "AutoConnectAP"
     //and goes into a blocking loop awaiting configuration
-    if (!wifiManager.autoConnect("ANAVI Thermometer Controller", ""))
+    if (!wifiManager.autoConnect("ANAVI Thermometer", ""))
     {
         Serial.println("failed to connect and hit timeout");
         delay(3000);
@@ -396,7 +396,7 @@ void mqttReconnect()
         // Create a random client ID
         //String clientId = "ESP8266Client-";
         //clientId += String(random(0xffff), HEX);
-        const String clientId = "light-controller-1";
+        const String clientId = "anavi-thermometer-1";
         // Attempt to connect
         if (true == mqttClient.connect(clientId.c_str(), username, password))
         {
