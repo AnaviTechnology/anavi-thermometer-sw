@@ -238,6 +238,7 @@ void setup()
     //in seconds
     wifiManager.setTimeout(300);
 
+    digitalWrite(pinAlarm, HIGH);
     drawDisplay("Connecting...", WiFi.SSID().c_str());
 
     //fetches ssid and pass and tries to connect
@@ -246,6 +247,7 @@ void setup()
     //and goes into a blocking loop awaiting configuration
     if (!wifiManager.autoConnect("ANAVI Thermometer", ""))
     {
+        digitalWrite(pinAlarm, LOW);
         Serial.println("failed to connect and hit timeout");
         delay(3000);
         //reset and try again, or maybe put it to deep sleep
