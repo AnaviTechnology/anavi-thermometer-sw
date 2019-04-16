@@ -421,16 +421,15 @@ void calculateMachineId()
 
 void mqttReconnect()
 {
+    char clientId[18 + sizeof(machineId)];
+    snprintf(clientId, sizeof(clientId), "anavi-thermometer-%s", machineId);
+
     // Loop until we're reconnected
     for (int attempt = 0; attempt < 3; ++attempt)
     {
         Serial.print("Attempting MQTT connection...");
-        // Create a random client ID
-        //String clientId = "ESP8266Client-";
-        //clientId += String(random(0xffff), HEX);
-        const String clientId = "anavi-thermometer-1";
         // Attempt to connect
-        if (true == mqttClient.connect(clientId.c_str(), username, password))
+        if (true == mqttClient.connect(clientId, username, password))
         {
             Serial.println("connected");
 
