@@ -57,7 +57,7 @@ const long mqttConnectionInterval = 60000;
 // Set temperature coefficient for calibration depending on an empirical research with
 // comparison to DS18B20 and other temperature sensors. You may need to adjust it for the
 // specfic DHT22 unit on your board
-const float temperatureCoef = 0.9;
+float temperatureCoef = 0.9;
 
 float dhtTemperature = 0;
 float dhtHumidity = 0;
@@ -94,6 +94,7 @@ char cmnd_color_topic[11 + sizeof(machineId)];
 char line1_topic[11 + sizeof(machineId)];
 char line2_topic[11 + sizeof(machineId)];
 char line3_topic[11 + sizeof(machineId)];
+char cmnd_temp_coefficient_topic[14 + sizeof(machineId)];
 
 // The display can fit 26 "i":s on a single line.  It will fit even
 // less of other characters.
@@ -103,6 +104,7 @@ char global_line3[26+1];
 
 char stat_power_topic[11 + sizeof(machineId)];
 char stat_color_topic[11 + sizeof(machineId)];
+char stat_temp_coefficient_topic[14 + sizeof(machineId)];
 
 //callback notifying us of the need to save config
 void saveConfigCallback ()
@@ -201,6 +203,8 @@ void setup()
     sprintf(line1_topic, "cmnd/%s/line1", machineId);
     sprintf(line2_topic, "cmnd/%s/line2", machineId);
     sprintf(line3_topic, "cmnd/%s/line3", machineId);
+    sprintf(cmnd_temp_coefficient_topic, "cmnd/%s/tempcoef", machineId);
+    sprintf(stat_temp_coefficient_topic, "stat/%s/tempcoef", machineId);
 
     // The extra parameters to be configured (can be either global or just in the setup)
     // After connecting, parameter.getValue() will get you the configured value
@@ -409,6 +413,11 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
         snprintf(global_line3, sizeof(global_line3), "%s", text);
     }
 
+    if (strcmp(topic, cmnd_temp_coefficient_topic) == 0)
+    {
+        temperatureCoef = atof(text);
+    }
+
     publishState();
 }
 
@@ -444,6 +453,7 @@ void mqttReconnect()
             mqttClient.subscribe(line1_topic);
             mqttClient.subscribe(line2_topic);
             mqttClient.subscribe(line3_topic);
+            mqttClient.subscribe(cmnd_temp_coefficient_topic);
             break;
 
         }
@@ -481,6 +491,9 @@ void publishState()
     Serial.print("] ");
     Serial.println(state);
     mqttClient.publish(stat_power_topic, state, true);
+
+    snprintf(payload, sizeof(payload), "%f", temperatureCoef);
+    mqttClient.publish(stat_temp_coefficient_topic, payload, true);
 }
 
 void publishSensorData(const char* subTopic, const char* key, const float value)
