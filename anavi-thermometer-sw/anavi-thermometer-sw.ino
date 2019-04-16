@@ -831,6 +831,11 @@ void loop()
         publishSensorData("wifi/bssid", "bssid", WiFi.BSSIDstr());
         publishSensorData("wifi/rssi", "rssi", rssi);
         publishSensorData("wifi/ip", "ip", WiFi.localIP().toString());
+        publishSensorData("sketch", "sketch", ESP.getSketchMD5());
+
+        char chipid[9];
+        snprintf(chipid, sizeof(chipid), "%08x", ESP.getChipId());
+        publishSensorData("chipid", "chipid", chipid);
 
         drawDisplay(global_line1[0] ? global_line1 : air.c_str(),
                     global_line2[0] ? global_line2 : hum.c_str(),
