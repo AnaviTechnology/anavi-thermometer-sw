@@ -242,7 +242,7 @@ void setup()
     //in seconds
     //wifiManager.setTimeout(120);
 
-    drawDisplay("Connecting...");
+    drawDisplay("Connecting...", WiFi.SSID().c_str());
 
     //fetches ssid and pass and tries to connect
     //if it does not connect it starts an access point with the specified name
@@ -294,6 +294,8 @@ void setup()
 
     Serial.println("local ip");
     Serial.println(WiFi.localIP());
+    drawDisplay("Connected!", "Local IP:", WiFi.localIP().toString().c_str());
+    delay(2000);
 
     // Sensors
     htu.begin();
