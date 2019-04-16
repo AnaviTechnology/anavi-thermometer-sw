@@ -89,8 +89,6 @@ long lastMsg = 0;
 char msg[50];
 int value = 0;
 
-char cmnd_power_topic[11 + sizeof(machineId)];
-char cmnd_color_topic[11 + sizeof(machineId)];
 char line1_topic[11 + sizeof(machineId)];
 char line2_topic[11 + sizeof(machineId)];
 char line3_topic[11 + sizeof(machineId)];
@@ -102,8 +100,6 @@ char global_line1[26+1];
 char global_line2[26+1];
 char global_line3[26+1];
 
-char stat_power_topic[11 + sizeof(machineId)];
-char stat_color_topic[11 + sizeof(machineId)];
 char stat_temp_coefficient_topic[14 + sizeof(machineId)];
 
 //callback notifying us of the need to save config
@@ -196,10 +192,6 @@ void setup()
     calculateMachineId();
 
     // Set MQTT topics
-    sprintf(cmnd_power_topic, "cmnd/%s/power", machineId);
-    sprintf(cmnd_color_topic, "cmnd/%s/color", machineId);
-    sprintf(stat_power_topic, "stat/%s/power", machineId);
-    sprintf(stat_color_topic, "stat/%s/color", machineId);
     sprintf(line1_topic, "cmnd/%s/line1", machineId);
     sprintf(line2_topic, "cmnd/%s/line2", machineId);
     sprintf(line3_topic, "cmnd/%s/line3", machineId);
@@ -393,11 +385,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
     Serial.print("] ");
     Serial.println(text);
 
-    if (strcmp(topic, cmnd_power_topic) == 0)
-    {
-        power = strcmp(text, "ON") == 0;
-    }
-
     if (strcmp(topic, line1_topic) == 0)
     {
         snprintf(global_line1, sizeof(global_line1), "%s", text);
@@ -448,8 +435,6 @@ void mqttReconnect()
             Serial.println("connected");
 
             // Subscribe to MQTT topics
-            mqttClient.subscribe(cmnd_power_topic);
-            mqttClient.subscribe(cmnd_color_topic);
             mqttClient.subscribe(line1_topic);
             mqttClient.subscribe(line2_topic);
             mqttClient.subscribe(line3_topic);
@@ -470,28 +455,7 @@ void mqttReconnect()
 
 void publishState()
 {
-    StaticJsonBuffer<150> jsonBuffer;
-    char payload[150] = {0};
-    JsonObject& json = jsonBuffer.createObject();
-    const char* state = power ? "ON" : "OFF";
-    json["state"] = state;
-
-    JsonObject& color = json.createNestedObject("color");
-
-    json.printTo((char*)payload, json.measureLength() + 1);
-
-    Serial.print("[");
-    Serial.print(stat_color_topic);
-    Serial.print("] ");
-    Serial.println(payload);
-    mqttClient.publish(stat_color_topic, payload, true);
-
-    Serial.print("[");
-    Serial.print(stat_power_topic);
-    Serial.print("] ");
-    Serial.println(state);
-    mqttClient.publish(stat_power_topic, state, true);
-
+    char payload[150];
     snprintf(payload, sizeof(payload), "%f", temperatureCoef);
     mqttClient.publish(stat_temp_coefficient_topic, payload, true);
 }
