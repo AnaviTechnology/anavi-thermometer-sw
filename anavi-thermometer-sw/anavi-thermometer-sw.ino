@@ -653,6 +653,12 @@ void loop()
         String water="Water "+String(dsTemperature,1)+"C";
         Serial.println(water);
 
+        publishSensorData("wifi/ssid", "ssid", WiFi.SSID());
+        publishSensorData("wifi/bssid", "bssid", WiFi.BSSIDstr());
+        publishSensorData("wifi/rssi", "rssi",
+                          String(WiFi.RSSI()) + String(" dBm"));
+        publishSensorData("wifi/ip", "ip", WiFi.localIP().toString());
+
         drawDisplay(global_line1[0] ? global_line1 : air.c_str(),
                     global_line2[0] ? global_line2 : hum.c_str(),
                     global_line3[0] ? global_line3 : water.c_str());
