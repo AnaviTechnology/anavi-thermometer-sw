@@ -643,20 +643,26 @@ void loop()
         String hum="Humidity "+String(dhtHumidity, 0)+"%";
         Serial.println(hum);
 
+        String rssi = String(WiFi.RSSI()) + " dBm";
+        Serial.println(rssi);
+        String water;
         if (0 < sensors.getDeviceCount())
         {
             sensors.requestTemperatures();
             float wtemp = sensors.getTempCByIndex(0);
             dsTemperature = wtemp;
             publishSensorData("water/temperature", "temperature", wtemp);
+            water="Water "+String(dsTemperature,1)+"C";
+            Serial.println(water);
         }
-        String water="Water "+String(dsTemperature,1)+"C";
-        Serial.println(water);
+        else
+        {
+            water = rssi;
+        }
 
         publishSensorData("wifi/ssid", "ssid", WiFi.SSID());
         publishSensorData("wifi/bssid", "bssid", WiFi.BSSIDstr());
-        publishSensorData("wifi/rssi", "rssi",
-                          String(WiFi.RSSI()) + String(" dBm"));
+        publishSensorData("wifi/rssi", "rssi", rssi);
         publishSensorData("wifi/ip", "ip", WiFi.localIP().toString());
 
         drawDisplay(global_line1[0] ? global_line1 : air.c_str(),
