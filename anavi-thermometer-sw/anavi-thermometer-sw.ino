@@ -347,15 +347,27 @@ void factoryReset()
     if (false == digitalRead(pinButton))
     {
         Serial.println("Hold the button to reset to factory defaults...");
+        bool cancel = false;
         for (int iter=0; iter<30; iter++)
         {
             digitalWrite(pinAlarm, HIGH);
             delay(100);
+            if (true == digitalRead(pinButton))
+            {
+                cancel = true;
+                break;
+            }
             digitalWrite(pinAlarm, LOW);
             delay(100);
+            if (true == digitalRead(pinButton))
+            {
+                cancel = true;
+                break;
+            }
         }
-        if (false == digitalRead(pinButton))
+        if (false == digitalRead(pinButton) && !cancel)
         {
+            digitalWrite(pinAlarm, HIGH);
             Serial.println("Disconnecting...");
             WiFi.disconnect();
 
