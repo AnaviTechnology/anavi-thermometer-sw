@@ -240,7 +240,7 @@ void setup()
     //sets timeout until configuration portal gets turned off
     //useful to make it all retry or go to sleep
     //in seconds
-    //wifiManager.setTimeout(120);
+    wifiManager.setTimeout(300);
 
     drawDisplay("Connecting...", WiFi.SSID().c_str());
 
