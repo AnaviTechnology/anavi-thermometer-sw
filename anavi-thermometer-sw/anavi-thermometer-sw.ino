@@ -1,6 +1,14 @@
 // -*- mode: c++; indent-tabs-mode: nil; c-file-style: "stroustrup" -*-
 #include <FS.h>                   //this needs to be first, or it all crashes and burns...
 
+// If HOME_ASSISTANT_DISCOVERY is defined, the Anavi Thermometer will
+// publish MQTT messages that makes Home Assistant auto-discover the
+// device.  See https://www.home-assistant.io/docs/mqtt/discovery/.
+//
+// This requires PubSubClient 2.7.
+
+#define HOME_ASSISTANT_DISCOVERY 1
+
 #include <ESP8266WiFi.h>          //https://github.com/esp8266/Arduino
 #include <ESP8266httpUpdate.h>
 
@@ -508,6 +516,7 @@ void mqttReconnect()
             mqttClient.subscribe(line3_topic);
             mqttClient.subscribe(cmnd_temp_coefficient_topic);
             mqttClient.subscribe(cmnd_update_topic);
+            publishState();
             break;
 
         }
@@ -522,11 +531,83 @@ void mqttReconnect()
     }
 }
 
+#ifdef HOME_ASSISTANT_DISCOVERY
+const char *temp_template = (
+    "{\"device_class\": \"temperature\", "
+    "\"name\": \"%s Temp\", "
+    "\"state_topic\": \"%s/%s/air/temperature\", "
+    "\"unit_of_measurement\": \"°C\", "
+    "\"value_template\": \"{{ value_json.temperature}}\" }");
+
+const char *humid_template = (
+    "{\"device_class\": \"humidity\", "
+    "\"name\": \"%s Humidity\", "
+    "\"state_topic\": \"%s/%s/air/humidity\", "
+    "\"unit_of_measurement\": \"%%\", "
+    "\"value_template\": \"{{ value_json.humidity}}\" }");
+
+const char *water_temp_template = (
+    "{\"device_class\": \"temperature\", "
+    "\"name\": \"%s Water Temp\", "
+    "\"state_topic\": \"%s/%s/water/temperature\", "
+    "\"unit_of_measurement\": \"°C\", "
+    "\"value_template\": \"{{ value_json.temperature}}\" }");
+
+bool publishLargePayload(const char *topic, const char *payload, bool retained)
+{
+    size_t payload_len = strlen(payload);
+
+    if (!mqttClient.beginPublish(topic, payload_len, true))
+    {
+        Serial.println("beginPublish failed!\n");
+        return false;
+    }
+
+    if (mqttClient.write((uint8_t*)payload, payload_len) != payload_len)
+    {
+        Serial.println("writing payload: wrong size!\n");
+        return false;
+    }
+
+    if (!mqttClient.endPublish())
+    {
+        Serial.println("endPublish failed!\n");
+        return false;
+    }
+
+    return true;
+}
+#endif
+
 void publishState()
 {
-    char payload[150];
+    static char payload[300];
+    static char topic[80];
     snprintf(payload, sizeof(payload), "%f", temperatureCoef);
     mqttClient.publish(stat_temp_coefficient_topic, payload, true);
+
+#ifdef HOME_ASSISTANT_DISCOVERY
+    snprintf(payload, sizeof(payload),
+             temp_template,  machineId, workgroup, machineId);
+    snprintf(topic, sizeof(topic),
+             "homeassistant/sensor/%s/temp/config", machineId);
+    publishLargePayload(topic, payload, true);
+
+    snprintf(payload, sizeof(payload),
+             humid_template, machineId, workgroup, machineId);
+    snprintf(topic, sizeof(topic),
+             "homeassistant/sensor/%s/humidity/config", machineId);
+    publishLargePayload(topic, payload, true);
+
+    if (0 < sensors.getDeviceCount())
+    {
+        snprintf(payload, sizeof(payload),
+                 water_temp_template, machineId, workgroup, machineId);
+        snprintf(topic, sizeof(topic),
+                 "homeassistant/sensor/%s/watertemp/config", machineId);
+        publishLargePayload(topic, payload, true);
+    }
+#endif
 }
 
 void publishSensorData(const char* subTopic, const char* key, const float value)
