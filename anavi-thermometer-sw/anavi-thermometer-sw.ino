@@ -68,6 +68,9 @@ const long mqttConnectionInterval = 60000;
 // specfic DHT22 unit on your board
 float temperatureCoef = 0.9;
 
+// Similar, for the DS18B20 sensor.
+float dsTemperatureCoef = 1.0;
+
 float dhtTemperature = 0;
 float dhtHumidity = 0;
 float dsTemperature = 0;
@@ -103,6 +106,7 @@ char line1_topic[11 + sizeof(machineId)];
 char line2_topic[11 + sizeof(machineId)];
 char line3_topic[11 + sizeof(machineId)];
 char cmnd_temp_coefficient_topic[14 + sizeof(machineId)];
+char cmnd_ds_temp_coefficient_topic[20 + sizeof(machineId)];
 
 // The display can fit 26 "i":s on a single line.  It will fit even
 // less of other characters.
@@ -111,6 +115,7 @@ char global_line2[26+1];
 char global_line3[26+1];
 
 char stat_temp_coefficient_topic[14 + sizeof(machineId)];
+char stat_ds_temp_coefficient_topic[20 + sizeof(machineId)];
 
 //callback notifying us of the need to save config
 void saveConfigCallback ()
@@ -207,6 +212,8 @@ void setup()
     sprintf(line3_topic, "cmnd/%s/line3", machineId);
     sprintf(cmnd_temp_coefficient_topic, "cmnd/%s/tempcoef", machineId);
     sprintf(stat_temp_coefficient_topic, "stat/%s/tempcoef", machineId);
+    sprintf(cmnd_ds_temp_coefficient_topic, "cmnd/%s/water/tempcoef", machineId);
+    sprintf(stat_ds_temp_coefficient_topic, "stat/%s/water/tempcoef", machineId);
     sprintf(cmnd_update_topic, "cmnd/%s/update", machineId);
 
     // The extra parameters to be configured (can be either global or just in the setup)
@@ -476,6 +483,11 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
         temperatureCoef = atof(text);
     }
 
+    if (strcmp(topic, cmnd_ds_temp_coefficient_topic) == 0)
+    {
+        dsTemperatureCoef = atof(text);
+    }
+
     if (strcmp(topic, cmnd_update_topic) == 0)
     {
         Serial.println("OTA request seen.\n");
@@ -515,6 +527,7 @@ void mqttReconnect()
             mqttClient.subscribe(line2_topic);
             mqttClient.subscribe(line3_topic);
             mqttClient.subscribe(cmnd_temp_coefficient_topic);
+            mqttClient.subscribe(cmnd_ds_temp_coefficient_topic);
             mqttClient.subscribe(cmnd_update_topic);
             publishState();
             break;
@@ -585,6 +598,8 @@ void publishState()
     static char topic[80];
     snprintf(payload, sizeof(payload), "%f", temperatureCoef);
     mqttClient.publish(stat_temp_coefficient_topic, payload, true);
+    snprintf(payload, sizeof(payload), "%f", dsTemperatureCoef);
+    mqttClient.publish(stat_ds_temp_coefficient_topic, payload, true);
 
 #ifdef HOME_ASSISTANT_DISCOVERY
     snprintf(payload, sizeof(payload),
@@ -801,6 +816,7 @@ void loop()
         {
             sensors.requestTemperatures();
             float wtemp = sensors.getTempCByIndex(0);
+            wtemp = wtemp * dsTemperatureCoef;
             dsTemperature = wtemp;
             publishSensorData("water/temperature", "temperature", wtemp);
             water="Water "+String(dsTemperature,1)+"C";
