@@ -87,11 +87,11 @@ long lastMsg = 0;
 char msg[50];
 int value = 0;
 
-char cmnd_power_topic[44];
-char cmnd_color_topic[44];
+char cmnd_power_topic[11 + sizeof(machineId)];
+char cmnd_color_topic[11 + sizeof(machineId)];
 
-char stat_power_topic[44];
-char stat_color_topic[44];
+char stat_power_topic[11 + sizeof(machineId)];
+char stat_color_topic[11 + sizeof(machineId)];
 
 //callback notifying us of the need to save config
 void saveConfigCallback ()
@@ -385,7 +385,7 @@ void calculateMachineId()
     sprintf(chipId,"%d",ESP.getChipId());
     md5.add(chipId);
     md5.calculate();
-    md5.toString().toCharArray(machineId, 32);
+    md5.toString().toCharArray(machineId, sizeof(machineId));
 }
 
 void mqttReconnect()
