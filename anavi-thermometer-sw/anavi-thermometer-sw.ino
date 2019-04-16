@@ -74,8 +74,10 @@ char workgroup[32] = "workgroup";
 char username[20] = "";
 char password[20] = "";
 
-//MD5 of chip ID
-char machineId[32] = "";
+// MD5 of chip ID.  If you only have a handful of thermometers and use
+// your own MQTT broker (instead of iot.eclips.org) you may want to
+// truncate the MD5 by changing the 32 to a smaller value.
+char machineId[32+1] = "";
 
 //flag for saving data
 bool shouldSaveConfig = false;
