@@ -2,6 +2,7 @@
 #include <FS.h>                   //this needs to be first, or it all crashes and burns...
 
 #include <ESP8266WiFi.h>          //https://github.com/esp8266/Arduino
+#include <ESP8266httpUpdate.h>
 
 //needed for library
 #include <DNSServer.h>
@@ -89,6 +90,7 @@ long lastMsg = 0;
 char msg[50];
 int value = 0;
 
+char cmnd_update_topic[12 + sizeof(machineId)];
 char line1_topic[11 + sizeof(machineId)];
 char line2_topic[11 + sizeof(machineId)];
 char line3_topic[11 + sizeof(machineId)];
@@ -197,6 +199,7 @@ void setup()
     sprintf(line3_topic, "cmnd/%s/line3", machineId);
     sprintf(cmnd_temp_coefficient_topic, "cmnd/%s/tempcoef", machineId);
     sprintf(stat_temp_coefficient_topic, "stat/%s/tempcoef", machineId);
+    sprintf(cmnd_update_topic, "cmnd/%s/update", machineId);
 
     // The extra parameters to be configured (can be either global or just in the setup)
     // After connecting, parameter.getValue() will get you the configured value
@@ -388,6 +391,52 @@ void factoryReset()
     }
 }
 
+void do_ota_upgrade(char *text)
+{
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.parseObject(text);
+    if (!json.success())
+    {
+        Serial.println("No success decoding JSON.\n");
+    }
+    else if (!json.get<const char*>("server"))
+    {
+        Serial.println("JSON is missing server\n");
+    }
+    else if (!json.get<const char*>("file"))
+    {
+        Serial.println("JSON is missing file\n");
+    }
+    else
+    {
+        String server = json.get<const char*>("server");
+        String file = json.get<const char*>("file");
+        Serial.print("Attempting to upgrade from ");
+        Serial.print(server);
+        Serial.print(":");
+        Serial.println(file);
+        ESPhttpUpdate.setLedPin(pinAlarm, HIGH);
+        WiFiClient update_client;
+        t_httpUpdate_return ret = ESPhttpUpdate.update(update_client,
+                                                       server, 80, file);
+        switch (ret)
+        {
+        case HTTP_UPDATE_FAILED:
+            Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+            break;
+
+        case HTTP_UPDATE_NO_UPDATES:
+            Serial.println("HTTP_UPDATE_NO_UPDATES");
+            break;
+
+        case HTTP_UPDATE_OK:
+            Serial.println("HTTP_UPDATE_OK");
+            break;
+        }
+    }
+}
+
+
 void mqttCallback(char* topic, byte* payload, unsigned int length)
 {
     // Convert received bytes to a string
@@ -417,6 +466,12 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
     if (strcmp(topic, cmnd_temp_coefficient_topic) == 0)
     {
         temperatureCoef = atof(text);
+    }
+
+    if (strcmp(topic, cmnd_update_topic) == 0)
+    {
+        Serial.println("OTA request seen.\n");
+        do_ota_upgrade(text);
     }
 
     publishState();
@@ -452,6 +507,7 @@ void mqttReconnect()
             mqttClient.subscribe(line2_topic);
             mqttClient.subscribe(line3_topic);
             mqttClient.subscribe(cmnd_temp_coefficient_topic);
+            mqttClient.subscribe(cmnd_update_topic);
             break;
 
         }
