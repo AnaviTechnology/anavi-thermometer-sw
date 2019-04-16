@@ -91,6 +91,15 @@ int value = 0;
 
 char cmnd_power_topic[11 + sizeof(machineId)];
 char cmnd_color_topic[11 + sizeof(machineId)];
+char line1_topic[11 + sizeof(machineId)];
+char line2_topic[11 + sizeof(machineId)];
+char line3_topic[11 + sizeof(machineId)];
+
+// The display can fit 26 "i":s on a single line.  It will fit even
+// less of other characters.
+char global_line1[26+1];
+char global_line2[26+1];
+char global_line3[26+1];
 
 char stat_power_topic[11 + sizeof(machineId)];
 char stat_color_topic[11 + sizeof(machineId)];
@@ -120,6 +129,9 @@ void drawDisplay(const char *line1, const char *line2 = "", const char *line3 = 
 void setup()
 {
     // put your setup code here, to run once:
+    strcpy(global_line1, "");
+    strcpy(global_line2, "");
+    strcpy(global_line3, "");
     Serial.begin(115200);
     Serial.println();
     u8g2.begin();
@@ -186,6 +198,9 @@ void setup()
     sprintf(cmnd_color_topic, "cmnd/%s/color", machineId);
     sprintf(stat_power_topic, "stat/%s/power", machineId);
     sprintf(stat_color_topic, "stat/%s/color", machineId);
+    sprintf(line1_topic, "cmnd/%s/line1", machineId);
+    sprintf(line2_topic, "cmnd/%s/line2", machineId);
+    sprintf(line3_topic, "cmnd/%s/line3", machineId);
 
     // The extra parameters to be configured (can be either global or just in the setup)
     // After connecting, parameter.getValue() will get you the configured value
@@ -376,6 +391,22 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
     {
         power = strcmp(text, "ON") == 0;
     }
+
+    if (strcmp(topic, line1_topic) == 0)
+    {
+        snprintf(global_line1, sizeof(global_line1), "%s", text);
+    }
+
+    if (strcmp(topic, line2_topic) == 0)
+    {
+        snprintf(global_line2, sizeof(global_line2), "%s", text);
+    }
+
+    if (strcmp(topic, line3_topic) == 0)
+    {
+        snprintf(global_line3, sizeof(global_line3), "%s", text);
+    }
+
     publishState();
 }
 
@@ -408,6 +439,9 @@ void mqttReconnect()
             // Subscribe to MQTT topics
             mqttClient.subscribe(cmnd_power_topic);
             mqttClient.subscribe(cmnd_color_topic);
+            mqttClient.subscribe(line1_topic);
+            mqttClient.subscribe(line2_topic);
+            mqttClient.subscribe(line3_topic);
             break;
 
         }
@@ -641,7 +675,9 @@ void loop()
         String water="Water "+String(dsTemperature,1)+"C";
         Serial.println(water);
 
-        drawDisplay(air.c_str(), hum.c_str(), water.c_str());
+        drawDisplay(global_line1[0] ? global_line1 : air.c_str(),
+                    global_line2[0] ? global_line2 : hum.c_str(),
+                    global_line3[0] ? global_line3 : water.c_str());
     }
 
     // Press and hold the button to reset to factory defaults
