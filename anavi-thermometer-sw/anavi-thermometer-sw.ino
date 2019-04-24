@@ -85,6 +85,9 @@ char workgroup[32] = "workgroup";
 // MQTT username and password
 char username[20] = "";
 char password[20] = "";
+#ifdef HOME_ASSISTANT_DISCOVERY
+char ha_name[32+1] = "";        // Make sure the machineId fits.
+#endif
 
 // MD5 of chip ID.  If you only have a handful of thermometers and use
 // your own MQTT broker (instead of iot.eclips.org) you may want to
@@ -158,6 +161,9 @@ void setup()
     //Button
     pinMode(pinButton, INPUT);
 
+    // Machine ID
+    calculateMachineId();
+
     //read configuration from FS json
     Serial.println("mounting FS...");
 
@@ -188,7 +194,14 @@ void setup()
                     strcpy(workgroup, json["workgroup"]);
                     strcpy(username, json["username"]);
                     strcpy(password, json["password"]);
-
+#ifdef HOME_ASSISTANT_DISCOVERY
+                    {
+                        const char *s = json.get<const char*>("ha_name");
+                        if (!s)
+                            s = machineId;
+                        snprintf(ha_name, sizeof(ha_name), "%s", s);
+                    }
+#endif
                 }
                 else
                 {
@@ -202,9 +215,6 @@ void setup()
         Serial.println("failed to mount FS");
     }
     //end read
-
-    // Machine ID
-    calculateMachineId();
 
     // Set MQTT topics
     sprintf(line1_topic, "cmnd/%s/line1", machineId);
@@ -224,6 +234,9 @@ void setup()
     WiFiManagerParameter custom_workgroup("workgroup", "workgroup", workgroup, 32);
     WiFiManagerParameter custom_mqtt_user("user", "MQTT username", username, 20);
     WiFiManagerParameter custom_mqtt_pass("pass", "MQTT password", password, 20);
+#ifdef HOME_ASSISTANT_DISCOVERY
+    WiFiManagerParameter custom_mqtt_ha_name("ha_name", "Sensor name for Home Assistant", ha_name, sizeof(ha_name));
+#endif
 
     char htmlMachineId[200];
     sprintf(htmlMachineId,"<p style=\"color: red;\">Machine ID:</p><p><b>%s</b></p><p>Copy and save the machine ID because you will need it to control the device.</p>", machineId);
@@ -242,6 +255,9 @@ void setup()
     wifiManager.addParameter(&custom_workgroup);
     wifiManager.addParameter(&custom_mqtt_user);
     wifiManager.addParameter(&custom_mqtt_pass);
+#ifdef HOME_ASSISTANT_DISCOVERY
+    wifiManager.addParameter(&custom_mqtt_ha_name);
+#endif
     wifiManager.addParameter(&custom_text_machine_id);
 
     //reset settings - for testing
@@ -283,6 +299,9 @@ void setup()
     strcpy(workgroup, custom_workgroup.getValue());
     strcpy(username, custom_mqtt_user.getValue());
     strcpy(password, custom_mqtt_pass.getValue());
+#ifdef HOME_ASSISTANT_DISCOVERY
+    strcpy(ha_name, custom_mqtt_ha_name.getValue());
+#endif
 
     //save the custom parameters to FS
     if (shouldSaveConfig)
@@ -295,6 +314,9 @@ void setup()
         json["workgroup"] = workgroup;
         json["username"] = username;
         json["password"] = password;
+#ifdef HOME_ASSISTANT_DISCOVERY
+        json["ha_name"] = ha_name;
+#endif
 
         File configFile = SPIFFS.open("/config.json", "w");
         if (!configFile)
@@ -333,6 +355,10 @@ void setup()
     hiddenpass[strlen(password)] = '\0';
     Serial.print("MQTT Password: ");
     Serial.println(hiddenpass);
+#ifdef HOME_ASSISTANT_DISCOVERY
+    Serial.print("Home Assistant sensor name: ");
+    Serial.println(ha_name);
+#endif
 
     const int mqttPort = atoi(mqtt_port);
     mqttClient.setServer(mqtt_server, mqttPort);
@@ -603,13 +629,13 @@ void publishState()
 
 #ifdef HOME_ASSISTANT_DISCOVERY
     snprintf(payload, sizeof(payload),
-             temp_template,  machineId, workgroup, machineId);
+             temp_template, ha_name, workgroup, machineId);
     snprintf(topic, sizeof(topic),
              "homeassistant/sensor/%s/temp/config", machineId);
     publishLargePayload(topic, payload, true);
 
     snprintf(payload, sizeof(payload),
-             humid_template, machineId, workgroup, machineId);
+             humid_template, ha_name, workgroup, machineId);
     snprintf(topic, sizeof(topic),
              "homeassistant/sensor/%s/humidity/config", machineId);
     publishLargePayload(topic, payload, true);
@@ -617,7 +643,7 @@ void publishState()
     if (0 < sensors.getDeviceCount())
     {
         snprintf(payload, sizeof(payload),
-                 water_temp_template, machineId, workgroup, machineId);
+                 water_temp_template, ha_name, workgroup, machineId);
         snprintf(topic, sizeof(topic),
                  "homeassistant/sensor/%s/watertemp/config", machineId);
         publishLargePayload(topic, payload, true);
