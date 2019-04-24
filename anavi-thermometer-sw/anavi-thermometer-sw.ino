@@ -1,6 +1,16 @@
+// -*- mode: c++; indent-tabs-mode: nil; c-file-style: "stroustrup" -*-
 #include <FS.h>                   //this needs to be first, or it all crashes and burns...
 
+// If HOME_ASSISTANT_DISCOVERY is defined, the Anavi Thermometer will
+// publish MQTT messages that makes Home Assistant auto-discover the
+// device.  See https://www.home-assistant.io/docs/mqtt/discovery/.
+//
+// This requires PubSubClient 2.7.
+
+#define HOME_ASSISTANT_DISCOVERY 1
+
 #include <ESP8266WiFi.h>          //https://github.com/esp8266/Arduino
+#include <ESP8266httpUpdate.h>
 
 //needed for library
 #include <DNSServer.h>
@@ -56,7 +66,10 @@ const long mqttConnectionInterval = 60000;
 // Set temperature coefficient for calibration depending on an empirical research with
 // comparison to DS18B20 and other temperature sensors. You may need to adjust it for the
 // specfic DHT22 unit on your board
-const float temperatureCoef = 0.9;
+float temperatureCoef = 0.9;
+
+// Similar, for the DS18B20 sensor.
+float dsTemperatureCoef = 1.0;
 
 float dhtTemperature = 0;
 float dhtHumidity = 0;
@@ -72,9 +85,14 @@ char workgroup[32] = "workgroup";
 // MQTT username and password
 char username[20] = "";
 char password[20] = "";
+#ifdef HOME_ASSISTANT_DISCOVERY
+char ha_name[32+1] = "";        // Make sure the machineId fits.
+#endif
 
-//MD5 of chip ID
-char machineId[32] = "";
+// MD5 of chip ID.  If you only have a handful of thermometers and use
+// your own MQTT broker (instead of iot.eclips.org) you may want to
+// truncate the MD5 by changing the 32 to a smaller value.
+char machineId[32+1] = "";
 
 //flag for saving data
 bool shouldSaveConfig = false;
@@ -86,11 +104,21 @@ long lastMsg = 0;
 char msg[50];
 int value = 0;
 
-char cmnd_power_topic[44];
-char cmnd_color_topic[44];
+char cmnd_update_topic[12 + sizeof(machineId)];
+char line1_topic[11 + sizeof(machineId)];
+char line2_topic[11 + sizeof(machineId)];
+char line3_topic[11 + sizeof(machineId)];
+char cmnd_temp_coefficient_topic[14 + sizeof(machineId)];
+char cmnd_ds_temp_coefficient_topic[20 + sizeof(machineId)];
 
-char stat_power_topic[44];
-char stat_color_topic[44];
+// The display can fit 26 "i":s on a single line.  It will fit even
+// less of other characters.
+char global_line1[26+1];
+char global_line2[26+1];
+char global_line3[26+1];
+
+char stat_temp_coefficient_topic[14 + sizeof(machineId)];
+char stat_ds_temp_coefficient_topic[20 + sizeof(machineId)];
 
 //callback notifying us of the need to save config
 void saveConfigCallback ()
@@ -114,9 +142,64 @@ void drawDisplay(const char *line1, const char *line2 = "", const char *line3 = 
 }
 
 
+void load_calibration()
+{
+    if (!SPIFFS.exists("/calibration.json"))
+        return;
+    File configFile = SPIFFS.open("/calibration.json", "r");
+    if (!configFile)
+        return;
+    const size_t size = configFile.size();
+    std::unique_ptr<char[]> buf(new char[size]);
+    configFile.readBytes(buf.get(), size);
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.parseObject(buf.get());
+    Serial.print("Loading /calibration.json: ");
+    json.printTo(Serial);
+    Serial.println("");
+    if (!json.success())
+        return;
+    const char *val = json.get<const char*>("dht22_temp_mult");
+    temperatureCoef = atof(val);
+    val = json.get<const char*>("ds18b20_temp_mult");
+    dsTemperatureCoef = atof(val);
+    configFile.close();
+    Serial.print("DHT22: ");
+    Serial.println(temperatureCoef);
+    Serial.print("DS18B20: ");
+    Serial.println(dsTemperatureCoef);
+}
+
+void save_calibration()
+{
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.createObject();
+    char buf_a[40];
+    char buf_b[40];
+    snprintf(buf_a, sizeof(buf_a), "%g", temperatureCoef);
+    snprintf(buf_b, sizeof(buf_b), "%g", dsTemperatureCoef);
+    json["dht22_temp_mult"] = buf_a;
+    json["ds18b20_temp_mult"] = buf_b;
+
+    File configFile = SPIFFS.open("/calibration.json", "w");
+    if (!configFile)
+    {
+        Serial.println("failed to open calibration file for writing");
+        return;
+    }
+
+    json.printTo(Serial);
+    Serial.println("");
+    json.printTo(configFile);
+    configFile.close();
+}
+
 void setup()
 {
     // put your setup code here, to run once:
+    strcpy(global_line1, "");
+    strcpy(global_line2, "");
+    strcpy(global_line3, "");
     Serial.begin(115200);
     Serial.println();
     u8g2.begin();
@@ -129,6 +212,9 @@ void setup()
     pinMode(pinAlarm, OUTPUT);
     //Button
     pinMode(pinButton, INPUT);
+
+    // Machine ID
+    calculateMachineId();
 
     //read configuration from FS json
     Serial.println("mounting FS...");
@@ -160,7 +246,14 @@ void setup()
                     strcpy(workgroup, json["workgroup"]);
                     strcpy(username, json["username"]);
                     strcpy(password, json["password"]);
-
+#ifdef HOME_ASSISTANT_DISCOVERY
+                    {
+                        const char *s = json.get<const char*>("ha_name");
+                        if (!s)
+                            s = machineId;
+                        snprintf(ha_name, sizeof(ha_name), "%s", s);
+                    }
+#endif
                 }
                 else
                 {
@@ -168,6 +261,7 @@ void setup()
                 }
             }
         }
+        load_calibration();
     }
     else
     {
@@ -175,14 +269,15 @@ void setup()
     }
     //end read
 
-    // Machine ID
-    calculateMachineId();
-
     // Set MQTT topics
-    sprintf(cmnd_power_topic, "cmnd/%s/power", machineId);
-    sprintf(cmnd_color_topic, "cmnd/%s/color", machineId);
-    sprintf(stat_power_topic, "stat/%s/power", machineId);
-    sprintf(stat_color_topic, "stat/%s/color", machineId);
+    sprintf(line1_topic, "cmnd/%s/line1", machineId);
+    sprintf(line2_topic, "cmnd/%s/line2", machineId);
+    sprintf(line3_topic, "cmnd/%s/line3", machineId);
+    sprintf(cmnd_temp_coefficient_topic, "cmnd/%s/tempcoef", machineId);
+    sprintf(stat_temp_coefficient_topic, "stat/%s/tempcoef", machineId);
+    sprintf(cmnd_ds_temp_coefficient_topic, "cmnd/%s/water/tempcoef", machineId);
+    sprintf(stat_ds_temp_coefficient_topic, "stat/%s/water/tempcoef", machineId);
+    sprintf(cmnd_update_topic, "cmnd/%s/update", machineId);
 
     // The extra parameters to be configured (can be either global or just in the setup)
     // After connecting, parameter.getValue() will get you the configured value
@@ -192,6 +287,9 @@ void setup()
     WiFiManagerParameter custom_workgroup("workgroup", "workgroup", workgroup, 32);
     WiFiManagerParameter custom_mqtt_user("user", "MQTT username", username, 20);
     WiFiManagerParameter custom_mqtt_pass("pass", "MQTT password", password, 20);
+#ifdef HOME_ASSISTANT_DISCOVERY
+    WiFiManagerParameter custom_mqtt_ha_name("ha_name", "Sensor name for Home Assistant", ha_name, sizeof(ha_name));
+#endif
 
     char htmlMachineId[200];
     sprintf(htmlMachineId,"<p style=\"color: red;\">Machine ID:</p><p><b>%s</b></p><p>Copy and save the machine ID because you will need it to control the device.</p>", machineId);
@@ -210,6 +308,9 @@ void setup()
     wifiManager.addParameter(&custom_workgroup);
     wifiManager.addParameter(&custom_mqtt_user);
     wifiManager.addParameter(&custom_mqtt_pass);
+#ifdef HOME_ASSISTANT_DISCOVERY
+    wifiManager.addParameter(&custom_mqtt_ha_name);
+#endif
     wifiManager.addParameter(&custom_text_machine_id);
 
     //reset settings - for testing
@@ -222,9 +323,10 @@ void setup()
     //sets timeout until configuration portal gets turned off
     //useful to make it all retry or go to sleep
     //in seconds
-    //wifiManager.setTimeout(120);
+    wifiManager.setTimeout(300);
 
-    drawDisplay("Connecting...");
+    digitalWrite(pinAlarm, HIGH);
+    drawDisplay("Connecting...", WiFi.SSID().c_str());
 
     //fetches ssid and pass and tries to connect
     //if it does not connect it starts an access point with the specified name
@@ -232,6 +334,7 @@ void setup()
     //and goes into a blocking loop awaiting configuration
     if (!wifiManager.autoConnect("ANAVI Thermometer", ""))
     {
+        digitalWrite(pinAlarm, LOW);
         Serial.println("failed to connect and hit timeout");
         delay(3000);
         //reset and try again, or maybe put it to deep sleep
@@ -249,6 +352,9 @@ void setup()
     strcpy(workgroup, custom_workgroup.getValue());
     strcpy(username, custom_mqtt_user.getValue());
     strcpy(password, custom_mqtt_pass.getValue());
+#ifdef HOME_ASSISTANT_DISCOVERY
+    strcpy(ha_name, custom_mqtt_ha_name.getValue());
+#endif
 
     //save the custom parameters to FS
     if (shouldSaveConfig)
@@ -261,6 +367,9 @@ void setup()
         json["workgroup"] = workgroup;
         json["username"] = username;
         json["password"] = password;
+#ifdef HOME_ASSISTANT_DISCOVERY
+        json["ha_name"] = ha_name;
+#endif
 
         File configFile = SPIFFS.open("/config.json", "w");
         if (!configFile)
@@ -276,6 +385,8 @@ void setup()
 
     Serial.println("local ip");
     Serial.println(WiFi.localIP());
+    drawDisplay("Connected!", "Local IP:", WiFi.localIP().toString().c_str());
+    delay(2000);
 
     // Sensors
     htu.begin();
@@ -297,6 +408,10 @@ void setup()
     hiddenpass[strlen(password)] = '\0';
     Serial.print("MQTT Password: ");
     Serial.println(hiddenpass);
+#ifdef HOME_ASSISTANT_DISCOVERY
+    Serial.print("Home Assistant sensor name: ");
+    Serial.println(ha_name);
+#endif
 
     const int mqttPort = atoi(mqtt_port);
     mqttClient.setServer(mqtt_server, mqttPort);
@@ -329,15 +444,27 @@ void factoryReset()
     if (false == digitalRead(pinButton))
     {
         Serial.println("Hold the button to reset to factory defaults...");
+        bool cancel = false;
         for (int iter=0; iter<30; iter++)
         {
             digitalWrite(pinAlarm, HIGH);
             delay(100);
+            if (true == digitalRead(pinButton))
+            {
+                cancel = true;
+                break;
+            }
             digitalWrite(pinAlarm, LOW);
             delay(100);
+            if (true == digitalRead(pinButton))
+            {
+                cancel = true;
+                break;
+            }
         }
-        if (false == digitalRead(pinButton))
+        if (false == digitalRead(pinButton) && !cancel)
         {
+            digitalWrite(pinAlarm, HIGH);
             Serial.println("Disconnecting...");
             WiFi.disconnect();
 
@@ -358,6 +485,52 @@ void factoryReset()
     }
 }
 
+void do_ota_upgrade(char *text)
+{
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.parseObject(text);
+    if (!json.success())
+    {
+        Serial.println("No success decoding JSON.\n");
+    }
+    else if (!json.get<const char*>("server"))
+    {
+        Serial.println("JSON is missing server\n");
+    }
+    else if (!json.get<const char*>("file"))
+    {
+        Serial.println("JSON is missing file\n");
+    }
+    else
+    {
+        String server = json.get<const char*>("server");
+        String file = json.get<const char*>("file");
+        Serial.print("Attempting to upgrade from ");
+        Serial.print(server);
+        Serial.print(":");
+        Serial.println(file);
+        ESPhttpUpdate.setLedPin(pinAlarm, HIGH);
+        WiFiClient update_client;
+        t_httpUpdate_return ret = ESPhttpUpdate.update(update_client,
+                                                       server, 80, file);
+        switch (ret)
+        {
+        case HTTP_UPDATE_FAILED:
+            Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+            break;
+
+        case HTTP_UPDATE_NO_UPDATES:
+            Serial.println("HTTP_UPDATE_NO_UPDATES");
+            break;
+
+        case HTTP_UPDATE_OK:
+            Serial.println("HTTP_UPDATE_OK");
+            break;
+        }
+    }
+}
+
+
 void mqttCallback(char* topic, byte* payload, unsigned int length)
 {
     // Convert received bytes to a string
@@ -369,10 +542,39 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
     Serial.print("] ");
     Serial.println(text);
 
-    if (strcmp(topic, cmnd_power_topic) == 0)
+    if (strcmp(topic, line1_topic) == 0)
     {
-        power = strcmp(text, "ON") == 0;
+        snprintf(global_line1, sizeof(global_line1), "%s", text);
     }
+
+    if (strcmp(topic, line2_topic) == 0)
+    {
+        snprintf(global_line2, sizeof(global_line2), "%s", text);
+    }
+
+    if (strcmp(topic, line3_topic) == 0)
+    {
+        snprintf(global_line3, sizeof(global_line3), "%s", text);
+    }
+
+    if (strcmp(topic, cmnd_temp_coefficient_topic) == 0)
+    {
+        temperatureCoef = atof(text);
+        save_calibration();
+    }
+
+    if (strcmp(topic, cmnd_ds_temp_coefficient_topic) == 0)
+    {
+        dsTemperatureCoef = atof(text);
+        save_calibration();
+    }
+
+    if (strcmp(topic, cmnd_update_topic) == 0)
+    {
+        Serial.println("OTA request seen.\n");
+        do_ota_upgrade(text);
+    }
+
     publishState();
 }
 
@@ -384,27 +586,31 @@ void calculateMachineId()
     sprintf(chipId,"%d",ESP.getChipId());
     md5.add(chipId);
     md5.calculate();
-    md5.toString().toCharArray(machineId, 32);
+    md5.toString().toCharArray(machineId, sizeof(machineId));
 }
 
 void mqttReconnect()
 {
+    char clientId[18 + sizeof(machineId)];
+    snprintf(clientId, sizeof(clientId), "anavi-thermometer-%s", machineId);
+
     // Loop until we're reconnected
     for (int attempt = 0; attempt < 3; ++attempt)
     {
         Serial.print("Attempting MQTT connection...");
-        // Create a random client ID
-        //String clientId = "ESP8266Client-";
-        //clientId += String(random(0xffff), HEX);
-        const String clientId = "anavi-thermometer-1";
         // Attempt to connect
-        if (true == mqttClient.connect(clientId.c_str(), username, password))
+        if (true == mqttClient.connect(clientId, username, password))
         {
             Serial.println("connected");
 
             // Subscribe to MQTT topics
-            mqttClient.subscribe(cmnd_power_topic);
-            mqttClient.subscribe(cmnd_color_topic);
+            mqttClient.subscribe(line1_topic);
+            mqttClient.subscribe(line2_topic);
+            mqttClient.subscribe(line3_topic);
+            mqttClient.subscribe(cmnd_temp_coefficient_topic);
+            mqttClient.subscribe(cmnd_ds_temp_coefficient_topic);
+            mqttClient.subscribe(cmnd_update_topic);
+            publishState();
             break;
 
         }
@@ -419,29 +625,85 @@ void mqttReconnect()
     }
 }
 
+#ifdef HOME_ASSISTANT_DISCOVERY
+const char *temp_template = (
+    "{\"device_class\": \"temperature\", "
+    "\"name\": \"%s Temp\", "
+    "\"state_topic\": \"%s/%s/air/temperature\", "
+    "\"unit_of_measurement\": \"°C\", "
+    "\"value_template\": \"{{ value_json.temperature}}\" }");
+
+const char *humid_template = (
+    "{\"device_class\": \"humidity\", "
+    "\"name\": \"%s Humidity\", "
+    "\"state_topic\": \"%s/%s/air/humidity\", "
+    "\"unit_of_measurement\": \"%%\", "
+    "\"value_template\": \"{{ value_json.humidity}}\" }");
+
+const char *water_temp_template = (
+    "{\"device_class\": \"temperature\", "
+    "\"name\": \"%s Water Temp\", "
+    "\"state_topic\": \"%s/%s/water/temperature\", "
+    "\"unit_of_measurement\": \"°C\", "
+    "\"value_template\": \"{{ value_json.temperature}}\" }");
+
+bool publishLargePayload(const char *topic, const char *payload, bool retained)
+{
+    size_t payload_len = strlen(payload);
+
+    if (!mqttClient.beginPublish(topic, payload_len, true))
+    {
+        Serial.println("beginPublish failed!\n");
+        return false;
+    }
+
+    if (mqttClient.write((uint8_t*)payload, payload_len) != payload_len)
+    {
+        Serial.println("writing payload: wrong size!\n");
+        return false;
+    }
+
+    if (!mqttClient.endPublish())
+    {
+        Serial.println("endPublish failed!\n");
+        return false;
+    }
+
+    return true;
+}
+#endif
+
 void publishState()
 {
-    StaticJsonBuffer<150> jsonBuffer;
-    char payload[150] = {0};
-    JsonObject& json = jsonBuffer.createObject();
-    const char* state = power ? "ON" : "OFF";
-    json["state"] = state;
+    static char payload[300];
+    static char topic[80];
+    snprintf(payload, sizeof(payload), "%f", temperatureCoef);
+    mqttClient.publish(stat_temp_coefficient_topic, payload, true);
+    snprintf(payload, sizeof(payload), "%f", dsTemperatureCoef);
+    mqttClient.publish(stat_ds_temp_coefficient_topic, payload, true);
 
-    JsonObject& color = json.createNestedObject("color");
+#ifdef HOME_ASSISTANT_DISCOVERY
+    snprintf(payload, sizeof(payload),
+             temp_template, ha_name, workgroup, machineId);
+    snprintf(topic, sizeof(topic),
+             "homeassistant/sensor/%s/temp/config", machineId);
+    publishLargePayload(topic, payload, true);
 
-    json.printTo((char*)payload, json.measureLength() + 1);
+    snprintf(payload, sizeof(payload),
+             humid_template, ha_name, workgroup, machineId);
+    snprintf(topic, sizeof(topic),
+             "homeassistant/sensor/%s/humidity/config", machineId);
+    publishLargePayload(topic, payload, true);
 
-    Serial.print("[");
-    Serial.print(stat_color_topic);
-    Serial.print("] ");
-    Serial.println(payload);
-    mqttClient.publish(stat_color_topic, payload, true);
-
-    Serial.print("[");
-    Serial.print(stat_power_topic);
-    Serial.print("] ");
-    Serial.println(state);
-    mqttClient.publish(stat_power_topic, state, true);
+    if (0 < sensors.getDeviceCount())
+    {
+        snprintf(payload, sizeof(payload),
+                 water_temp_template, ha_name, workgroup, machineId);
+        snprintf(topic, sizeof(topic),
+                 "homeassistant/sensor/%s/watertemp/config", machineId);
+        publishLargePayload(topic, payload, true);
+    }
+#endif
 }
 
 void publishSensorData(const char* subTopic, const char* key, const float value)
@@ -628,17 +890,37 @@ void loop()
         String hum="Humidity "+String(dhtHumidity, 0)+"%";
         Serial.println(hum);
 
+        String rssi = String(WiFi.RSSI()) + " dBm";
+        Serial.println(rssi);
+        String water;
         if (0 < sensors.getDeviceCount())
         {
             sensors.requestTemperatures();
             float wtemp = sensors.getTempCByIndex(0);
+            wtemp = wtemp * dsTemperatureCoef;
             dsTemperature = wtemp;
             publishSensorData("water/temperature", "temperature", wtemp);
+            water="Water "+String(dsTemperature,1)+"C";
+            Serial.println(water);
         }
-        String water="Water "+String(dsTemperature,1)+"C";
-        Serial.println(water);
+        else
+        {
+            water = rssi;
+        }
 
-        drawDisplay(air.c_str(), hum.c_str(), water.c_str());
+        publishSensorData("wifi/ssid", "ssid", WiFi.SSID());
+        publishSensorData("wifi/bssid", "bssid", WiFi.BSSIDstr());
+        publishSensorData("wifi/rssi", "rssi", rssi);
+        publishSensorData("wifi/ip", "ip", WiFi.localIP().toString());
+        publishSensorData("sketch", "sketch", ESP.getSketchMD5());
+
+        char chipid[9];
+        snprintf(chipid, sizeof(chipid), "%08x", ESP.getChipId());
+        publishSensorData("chipid", "chipid", chipid);
+
+        drawDisplay(global_line1[0] ? global_line1 : air.c_str(),
+                    global_line2[0] ? global_line2 : hum.c_str(),
+                    global_line3[0] ? global_line3 : water.c_str());
     }
 
     // Press and hold the button to reset to factory defaults
