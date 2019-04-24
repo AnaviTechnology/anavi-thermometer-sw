@@ -142,6 +142,58 @@ void drawDisplay(const char *line1, const char *line2 = "", const char *line3 = 
 }
 
 
+void load_calibration()
+{
+    if (!SPIFFS.exists("/calibration.json"))
+        return;
+    File configFile = SPIFFS.open("/calibration.json", "r");
+    if (!configFile)
+        return;
+    const size_t size = configFile.size();
+    std::unique_ptr<char[]> buf(new char[size]);
+    configFile.readBytes(buf.get(), size);
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.parseObject(buf.get());
+    Serial.print("Loading /calibration.json: ");
+    json.printTo(Serial);
+    Serial.println("");
+    if (!json.success())
+        return;
+    const char *val = json.get<const char*>("dht22_temp_mult");
+    temperatureCoef = atof(val);
+    val = json.get<const char*>("ds18b20_temp_mult");
+    dsTemperatureCoef = atof(val);
+    configFile.close();
+    Serial.print("DHT22: ");
+    Serial.println(temperatureCoef);
+    Serial.print("DS18B20: ");
+    Serial.println(dsTemperatureCoef);
+}
+
+void save_calibration()
+{
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.createObject();
+    char buf_a[40];
+    char buf_b[40];
+    snprintf(buf_a, sizeof(buf_a), "%g", temperatureCoef);
+    snprintf(buf_b, sizeof(buf_b), "%g", dsTemperatureCoef);
+    json["dht22_temp_mult"] = buf_a;
+    json["ds18b20_temp_mult"] = buf_b;
+
+    File configFile = SPIFFS.open("/calibration.json", "w");
+    if (!configFile)
+    {
+        Serial.println("failed to open calibration file for writing");
+        return;
+    }
+
+    json.printTo(Serial);
+    Serial.println("");
+    json.printTo(configFile);
+    configFile.close();
+}
+
 void setup()
 {
     // put your setup code here, to run once:
@@ -209,6 +261,7 @@ void setup()
                 }
             }
         }
+        load_calibration();
     }
     else
     {
@@ -507,11 +560,13 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
     if (strcmp(topic, cmnd_temp_coefficient_topic) == 0)
     {
         temperatureCoef = atof(text);
+        save_calibration();
     }
 
     if (strcmp(topic, cmnd_ds_temp_coefficient_topic) == 0)
     {
         dsTemperatureCoef = atof(text);
+        save_calibration();
     }
 
     if (strcmp(topic, cmnd_update_topic) == 0)
