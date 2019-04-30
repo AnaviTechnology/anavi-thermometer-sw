@@ -873,13 +873,14 @@ void loop()
         sensorPreviousMillis = currentMillis;
         handleSensors();
 
+        // Read temperature and humidity from DHT22/AM2302
         float temp = dht.readTemperature();
-        // Adjust temperature depending on the calibration coefficient
-        temp = temp*temperatureCoef;
         float humidity = dht.readHumidity();
-
         if (!isnan(humidity) && !isnan(temp))
         {
+            // Adjust temperature depending on the calibration coefficient
+            temp = temp*temperatureCoef;
+
             dhtTemperature = temp;
             dhtHumidity = humidity;
             publishSensorData("air/temperature", "temperature", temp);
