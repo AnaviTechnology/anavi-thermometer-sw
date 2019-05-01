@@ -862,11 +862,16 @@ void handleBMP()
   Serial.println(" C");
   // For accurate results replace SENSORS_PRESSURE_SEALEVELHPA with the current SLP
   float seaLevelPressure = SENSORS_PRESSURE_SEALEVELHPA;
+  float altitude;
+  altitude = bmp.pressureToAltitude(seaLevelPressure, event.pressure, temperature);
   Serial.print("BMP180 Altitude: ");
-  Serial.print(bmp.pressureToAltitude(seaLevelPressure,
-                                      event.pressure,
-                                      temperature));
+  Serial.print(altitude);
   Serial.println(" m");
+
+  // Publish new pressure values through MQTT
+  publishSensorData("BMPpressure", "BMPpressure", event.pressure);
+  publishSensorData("BMPtemperature", "BMPtemperature", temperature);
+  publishSensorData("BMPaltitude", "BMPaltitude", altitude);
 }
 
 void handleSensors()
