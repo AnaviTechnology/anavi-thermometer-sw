@@ -513,7 +513,7 @@ void do_ota_upgrade(char *text)
         int port = 0;
         if (json.containsKey("port")) {
             port = json.get<int>("port");
-            Serial.print("Port configured to");
+            Serial.print("Port configured to ");
             Serial.println(port);
         }
 
@@ -813,13 +813,13 @@ void handleBH1750()
 
     if (1 <= abs(tempAmbientLight - sensorAmbientLight))
     {
-        // Print new humidity value
+        // Print new brightness value
         sensorAmbientLight = tempAmbientLight;
         Serial.print("Light: ");
         Serial.print(tempAmbientLight);
         Serial.println("Lux");
 
-        // Publish new humidity value through MQTT
+        // Publish new brightness value through MQTT
         publishSensorData("light", "light", sensorAmbientLight);
     }
 }
