@@ -32,8 +32,13 @@
 #include <DallasTemperature.h>
 #include "Adafruit_HTU21DF.h"
 #include "Adafruit_APDS9960.h"
+// For BMP180
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP085_U.h>
 
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+
+Adafruit_BMP085_Unified bmp = Adafruit_BMP085_Unified(10085);
 
 #define DHTPIN  2
 #define DHTTYPE DHT22
@@ -50,6 +55,7 @@ Adafruit_APDS9960 apds;
 //Configure supported I2C sensors
 const int sensorHTU21D =  0x40;
 const int sensorBH1750 = 0x23;
+const int sensorBMP180 = 0x77;
 
 // Configure pins
 const int pinAlarm = 16;
@@ -390,6 +396,7 @@ void setup()
 
     // Sensors
     htu.begin();
+    bmp.begin();
 
     // MQTT
     Serial.print("MQTT Server: ");
@@ -836,6 +843,32 @@ void detectGesture()
     publishSensorData("gesture", "gesture", gesture);
 }
 
+void handleBMP()
+{
+  sensors_event_t event;
+  bmp.getEvent(&event);
+  if (!event.pressure)
+  {
+    // BMP180 sensor error
+    return;
+  }
+  Serial.print("BMP180 Pressure: ");
+  Serial.print(event.pressure);
+  Serial.println(" hPa");
+  float temperature;
+  bmp.getTemperature(&temperature);
+  Serial.print("BMP180 Temperature: ");
+  Serial.print(temperature);
+  Serial.println(" C");
+  // For accurate results replace SENSORS_PRESSURE_SEALEVELHPA with the current SLP
+  float seaLevelPressure = SENSORS_PRESSURE_SEALEVELHPA;
+  Serial.print("BMP180 Altitude: ");
+  Serial.print(bmp.pressureToAltitude(seaLevelPressure,
+                                      event.pressure,
+                                      temperature));
+  Serial.println(" m");
+}
+
 void handleSensors()
 {
     if (isSensorAvailable(sensorHTU21D))
@@ -845,6 +878,10 @@ void handleSensors()
     if (isSensorAvailable(sensorBH1750))
     {
         handleBH1750();
+    }
+    if (isSensorAvailable(sensorBMP180))
+    {
+      handleBMP();
     }
 }
 
@@ -873,13 +910,14 @@ void loop()
         sensorPreviousMillis = currentMillis;
         handleSensors();
 
+        // Read temperature and humidity from DHT22/AM2302
         float temp = dht.readTemperature();
-        // Adjust temperature depending on the calibration coefficient
-        temp = temp*temperatureCoef;
         float humidity = dht.readHumidity();
-
         if (!isnan(humidity) && !isnan(temp))
         {
+            // Adjust temperature depending on the calibration coefficient
+            temp = temp*temperatureCoef;
+
             dhtTemperature = temp;
             dhtHumidity = humidity;
             publishSensorData("air/temperature", "temperature", temp);
