@@ -511,13 +511,15 @@ void do_ota_upgrade(char *text)
     else
     {
         int port = 0;
-        if (json.containsKey("port")) {
+        if (json.containsKey("port"))
+        {
             port = json.get<int>("port");
             Serial.print("Port configured to ");
             Serial.println(port);
         }
 
-        if (0 >= port || 65535 < port) {
+        if (0 >= port || 65535 < port)
+        {
             port = 80;
         }
 
