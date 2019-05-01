@@ -510,16 +510,28 @@ void do_ota_upgrade(char *text)
     }
     else
     {
+        int port = 0;
+        if (json.containsKey("port")) {
+            port = json.get<int>("port");
+            Serial.print("Port configured to");
+            Serial.println(port);
+        }
+
+        if (0 >= port || 65535 < port) {
+            port = 80;
+        }
+
         String server = json.get<const char*>("server");
         String file = json.get<const char*>("file");
         Serial.print("Attempting to upgrade from ");
         Serial.print(server);
         Serial.print(":");
+        Serial.print(port);
         Serial.println(file);
         ESPhttpUpdate.setLedPin(pinAlarm, HIGH);
         WiFiClient update_client;
         t_httpUpdate_return ret = ESPhttpUpdate.update(update_client,
-                                                       server, 80, file);
+                                                       server, port, file);
         switch (ret)
         {
         case HTTP_UPDATE_FAILED:
