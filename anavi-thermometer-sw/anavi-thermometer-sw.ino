@@ -890,7 +890,8 @@ void loop()
         String hum="Humidity "+String(dhtHumidity, 0)+"%";
         Serial.println(hum);
 
-        String rssi = String(WiFi.RSSI()) + " dBm";
+        long rssiValue = WiFi.RSSI();
+        String rssi = String(rssiValue) + " dBm";
         Serial.println(rssi);
         String water;
         if (0 < sensors.getDeviceCount())
@@ -910,7 +911,7 @@ void loop()
 
         publishSensorData("wifi/ssid", "ssid", WiFi.SSID());
         publishSensorData("wifi/bssid", "bssid", WiFi.BSSIDstr());
-        publishSensorData("wifi/rssi", "rssi", rssi);
+        publishSensorData("wifi/rssi", "rssi", rssiValue);
         publishSensorData("wifi/ip", "ip", WiFi.localIP().toString());
         publishSensorData("sketch", "sketch", ESP.getSketchMD5());
 
