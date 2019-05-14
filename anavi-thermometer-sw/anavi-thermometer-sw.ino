@@ -9,6 +9,11 @@
 
 #define HOME_ASSISTANT_DISCOVERY 1
 
+// If PUBLISH_CHIP_ID is defined, the Anavi Thermometer will publish
+// the chip ID using MQTT.  This can be considered a privacy issue,
+// and is disabled by default.
+#undef PUBLISH_CHIP_ID
+
 #include <ESP8266WiFi.h>          //https://github.com/esp8266/Arduino
 #include <ESP8266httpUpdate.h>
 
@@ -972,9 +977,11 @@ void loop()
         publishSensorData("wifi/ip", "ip", WiFi.localIP().toString());
         publishSensorData("sketch", "sketch", ESP.getSketchMD5());
 
+#ifdef PUBLISH_CHIP_ID
         char chipid[9];
         snprintf(chipid, sizeof(chipid), "%08x", ESP.getChipId());
         publishSensorData("chipid", "chipid", chipid);
+#endif
 
         drawDisplay(global_line1[0] ? global_line1 : air.c_str(),
                     global_line2[0] ? global_line2 : hum.c_str(),
