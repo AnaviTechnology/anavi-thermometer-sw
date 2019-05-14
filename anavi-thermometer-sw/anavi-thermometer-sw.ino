@@ -219,6 +219,8 @@ void setup()
     //Button
     pinMode(pinButton, INPUT);
 
+    waitForFactoryReset();
+
     // Machine ID
     calculateMachineId();
 
@@ -443,6 +445,28 @@ void setupADPS9960()
         //gesture mode will be entered once proximity mode senses something close
         apds.enableProximity(true);
         apds.enableGesture(true);
+    }
+}
+
+void waitForFactoryReset()
+{
+    Serial.println("Press button within 2 seconds for factory reset...");
+    for (int iter = 0; iter < 20; iter++)
+    {
+        digitalWrite(pinAlarm, HIGH);
+        delay(50);
+        if (false == digitalRead(pinButton))
+        {
+            factoryReset();
+            return;
+        }
+        digitalWrite(pinAlarm, LOW);
+        delay(50);
+        if (false == digitalRead(pinButton))
+        {
+            factoryReset();
+            return;
+        }
     }
 }
 
