@@ -9,6 +9,23 @@
 
 #define HOME_ASSISTANT_DISCOVERY 1
 
+// Should Over-the-Air upgrades be supported?  They are only supported
+// if this define is set, and the user configures an OTA server on the
+// wifi configuration page (or defines OTA_SERVER below).  If you use
+// OTA you are strongly adviced to use signed builds (see
+// https://arduino-esp8266.readthedocs.io/en/2.5.0/ota_updates/readme.html#advanced-security-signed-updates)
+//
+// You perform an OTA upgrade by publishing a MQTT command, like
+// this:
+//
+//   mosquitto_pub -h mqtt-server.example.com \
+//     -t cmnd/$MACHINEID/update \
+//     -m '{"file": "/anavi.bin", "server": "www.example.com", "port": 8080 }'
+//
+// The port defaults to 80.
+#define OTA_UPGRADES 1
+// #define OTA_SERVER "www.example.com"
+
 #include <ESP8266WiFi.h>          //https://github.com/esp8266/Arduino
 #include <ESP8266httpUpdate.h>
 
@@ -94,6 +111,9 @@ char password[20] = "";
 #ifdef HOME_ASSISTANT_DISCOVERY
 char ha_name[32+1] = "";        // Make sure the machineId fits.
 #endif
+#ifdef OTA_UPGRADES
+char ota_server[40];
+#endif
 
 // MD5 of chip ID.  If you only have a handful of thermometers and use
 // your own MQTT broker (instead of iot.eclips.org) you may want to
@@ -110,7 +130,10 @@ long lastMsg = 0;
 char msg[50];
 int value = 0;
 
+#ifdef OTA_UPGRADES
 char cmnd_update_topic[12 + sizeof(machineId)];
+#endif
+
 char line1_topic[11 + sizeof(machineId)];
 char line2_topic[11 + sizeof(machineId)];
 char line3_topic[11 + sizeof(machineId)];
@@ -260,6 +283,14 @@ void setup()
                         snprintf(ha_name, sizeof(ha_name), "%s", s);
                     }
 #endif
+#ifdef OTA_UPGRADES
+                    {
+                        const char *s = json.get<const char*>("ota_server");
+                        if (!s)
+                            s = ""; // The empty string never matches.
+                        snprintf(ota_server, sizeof(ota_server), "%s", s);
+                    }
+#endif
                 }
                 else
                 {
@@ -283,7 +314,9 @@ void setup()
     sprintf(stat_temp_coefficient_topic, "stat/%s/tempcoef", machineId);
     sprintf(cmnd_ds_temp_coefficient_topic, "cmnd/%s/water/tempcoef", machineId);
     sprintf(stat_ds_temp_coefficient_topic, "stat/%s/water/tempcoef", machineId);
+#ifdef OTA_UPGRADES
     sprintf(cmnd_update_topic, "cmnd/%s/update", machineId);
+#endif
 
     // The extra parameters to be configured (can be either global or just in the setup)
     // After connecting, parameter.getValue() will get you the configured value
@@ -295,6 +328,9 @@ void setup()
     WiFiManagerParameter custom_mqtt_pass("pass", "MQTT password", password, 20);
 #ifdef HOME_ASSISTANT_DISCOVERY
     WiFiManagerParameter custom_mqtt_ha_name("ha_name", "Sensor name for Home Assistant", ha_name, sizeof(ha_name));
+#endif
+#ifdef OTA_UPGRADES
+    WiFiManagerParameter custom_ota_server("ota_server", "OTA server", ota_server, sizeof(ota_server));
 #endif
 
     char htmlMachineId[200];
@@ -316,6 +352,9 @@ void setup()
     wifiManager.addParameter(&custom_mqtt_pass);
 #ifdef HOME_ASSISTANT_DISCOVERY
     wifiManager.addParameter(&custom_mqtt_ha_name);
+#endif
+#ifdef OTA_UPGRADES
+    wifiManager.addParameter(&custom_ota_server);
 #endif
     wifiManager.addParameter(&custom_text_machine_id);
 
@@ -361,6 +400,9 @@ void setup()
 #ifdef HOME_ASSISTANT_DISCOVERY
     strcpy(ha_name, custom_mqtt_ha_name.getValue());
 #endif
+#ifdef OTA_UPGRADES
+    strcpy(ota_server, custom_ota_server.getValue());
+#endif
 
     //save the custom parameters to FS
     if (shouldSaveConfig)
@@ -375,6 +417,9 @@ void setup()
         json["password"] = password;
 #ifdef HOME_ASSISTANT_DISCOVERY
         json["ha_name"] = ha_name;
+#endif
+#ifdef OTA_UPGRADES
+        json["ota_server"] = ota_server;
 #endif
 
         File configFile = SPIFFS.open("/config.json", "w");
@@ -418,6 +463,25 @@ void setup()
 #ifdef HOME_ASSISTANT_DISCOVERY
     Serial.print("Home Assistant sensor name: ");
     Serial.println(ha_name);
+#endif
+#ifdef OTA_UPGRADES
+    if (ota_server[0] != '\0')
+    {
+        Serial.print("OTA server: ");
+        Serial.println(ota_server);
+    }
+    else
+    {
+#  ifndef OTA_SERVER
+        Serial.println("No OTA server");
+#  endif
+    }
+
+#  ifdef OTA_SERVER
+    Serial.print("Hardcoded OTA server: ");
+    Serial.println(OTA_SERVER);
+#  endif
+
 #endif
 
     const int mqttPort = atoi(mqtt_port);
@@ -492,6 +556,7 @@ void factoryReset()
     }
 }
 
+#ifdef OTA_UPGRADES
 void do_ota_upgrade(char *text)
 {
     DynamicJsonBuffer jsonBuffer;
@@ -525,6 +590,22 @@ void do_ota_upgrade(char *text)
 
         String server = json.get<const char*>("server");
         String file = json.get<const char*>("file");
+
+        bool ok = false;
+        if (ota_server[0] != '\0' && !strcmp(server.c_str(), ota_server))
+            ok = true;
+
+#  ifdef OTA_SERVER
+        if (!strcmp(server.c_str(), OTA_SERVER))
+            ok = true;
+#  endif
+
+        if (!ok)
+        {
+            Serial.println("Wrong OTA server. Refusing to upgrade.");
+            return;
+        }
+
         Serial.print("Attempting to upgrade from ");
         Serial.print(server);
         Serial.print(":");
@@ -550,7 +631,7 @@ void do_ota_upgrade(char *text)
         }
     }
 }
-
+#endif
 
 void mqttCallback(char* topic, byte* payload, unsigned int length)
 {
@@ -590,11 +671,13 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
         save_calibration();
     }
 
+#ifdef OTA_UPGRADES
     if (strcmp(topic, cmnd_update_topic) == 0)
     {
         Serial.println("OTA request seen.\n");
         do_ota_upgrade(text);
     }
+#endif
 
     publishState();
 }
@@ -630,7 +713,9 @@ void mqttReconnect()
             mqttClient.subscribe(line3_topic);
             mqttClient.subscribe(cmnd_temp_coefficient_topic);
             mqttClient.subscribe(cmnd_ds_temp_coefficient_topic);
+#ifdef OTA_UPGRADES
             mqttClient.subscribe(cmnd_update_topic);
+#endif
             publishState();
             break;
 
