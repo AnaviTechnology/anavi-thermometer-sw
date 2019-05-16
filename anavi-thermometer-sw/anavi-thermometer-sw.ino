@@ -151,6 +151,10 @@ char mqtt_line1[26+1];
 char mqtt_line2[26+1];
 char mqtt_line3[26+1];
 
+String sensor_line1;
+String sensor_line2;
+String sensor_line3;
+
 char stat_temp_coefficient_topic[14 + sizeof(machineId)];
 char stat_ds_temp_coefficient_topic[20 + sizeof(machineId)];
 
@@ -1061,15 +1065,15 @@ void loop()
             publishSensorData("air/temperature", "temperature", temp);
             publishSensorData("air/humidity", "humidity", humidity);
         }
-        String air="Air "+String(dhtTemperature, 1)+"C ";
-        Serial.println(air);
-        String hum="Humidity "+String(dhtHumidity, 0)+"%";
-        Serial.println(hum);
+        sensor_line1 = "Air "+String(dhtTemperature, 1)+"C ";
+        Serial.println(sensor_line1);
+        sensor_line2 = "Humidity "+String(dhtHumidity, 0)+"%";
+        Serial.println(sensor_line2);
 
         long rssiValue = WiFi.RSSI();
         String rssi = String(rssiValue) + " dBm";
         Serial.println(rssi);
-        String water;
+        sensor_line3 = "";
         if (0 < sensors.getDeviceCount())
         {
             sensors.requestTemperatures();
@@ -1077,12 +1081,12 @@ void loop()
             wtemp = wtemp * dsTemperatureCoef;
             dsTemperature = wtemp;
             publishSensorData("water/temperature", "temperature", wtemp);
-            water="Water "+String(dsTemperature,1)+"C";
-            Serial.println(water);
+            sensor_line3 = "Water "+String(dsTemperature,1)+"C";
+            Serial.println(sensor_line3);
         }
         else
         {
-            water = rssi;
+            sensor_line3 = rssi;
         }
 
         publishSensorData("wifi/ssid", "ssid", WiFi.SSID());
@@ -1097,9 +1101,9 @@ void loop()
         publishSensorData("chipid", "chipid", chipid);
 #endif
 
-        drawDisplay(mqtt_line1[0] ? mqtt_line1 : air.c_str(),
-                    mqtt_line2[0] ? mqtt_line2 : hum.c_str(),
-                    mqtt_line3[0] ? mqtt_line3 : water.c_str());
+        drawDisplay(mqtt_line1[0] ? mqtt_line1 : sensor_line1.c_str(),
+                    mqtt_line2[0] ? mqtt_line2 : sensor_line2.c_str(),
+                    mqtt_line3[0] ? mqtt_line3 : sensor_line3.c_str());
     }
 
     // Press and hold the button to reset to factory defaults
