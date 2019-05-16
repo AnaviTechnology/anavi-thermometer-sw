@@ -147,9 +147,9 @@ char cmnd_ds_temp_coefficient_topic[20 + sizeof(machineId)];
 
 // The display can fit 26 "i":s on a single line.  It will fit even
 // less of other characters.
-char global_line1[26+1];
-char global_line2[26+1];
-char global_line3[26+1];
+char mqtt_line1[26+1];
+char mqtt_line2[26+1];
+char mqtt_line3[26+1];
 
 char stat_temp_coefficient_topic[14 + sizeof(machineId)];
 char stat_ds_temp_coefficient_topic[20 + sizeof(machineId)];
@@ -231,9 +231,9 @@ void save_calibration()
 void setup()
 {
     // put your setup code here, to run once:
-    strcpy(global_line1, "");
-    strcpy(global_line2, "");
-    strcpy(global_line3, "");
+    strcpy(mqtt_line1, "");
+    strcpy(mqtt_line2, "");
+    strcpy(mqtt_line3, "");
     Serial.begin(115200);
     Serial.println();
     u8g2.begin();
@@ -675,17 +675,17 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
 
     if (strcmp(topic, line1_topic) == 0)
     {
-        snprintf(global_line1, sizeof(global_line1), "%s", text);
+        snprintf(mqtt_line1, sizeof(mqtt_line1), "%s", text);
     }
 
     if (strcmp(topic, line2_topic) == 0)
     {
-        snprintf(global_line2, sizeof(global_line2), "%s", text);
+        snprintf(mqtt_line2, sizeof(mqtt_line2), "%s", text);
     }
 
     if (strcmp(topic, line3_topic) == 0)
     {
-        snprintf(global_line3, sizeof(global_line3), "%s", text);
+        snprintf(mqtt_line3, sizeof(mqtt_line3), "%s", text);
     }
 
     if (strcmp(topic, cmnd_temp_coefficient_topic) == 0)
@@ -1097,9 +1097,9 @@ void loop()
         publishSensorData("chipid", "chipid", chipid);
 #endif
 
-        drawDisplay(global_line1[0] ? global_line1 : air.c_str(),
-                    global_line2[0] ? global_line2 : hum.c_str(),
-                    global_line3[0] ? global_line3 : water.c_str());
+        drawDisplay(mqtt_line1[0] ? mqtt_line1 : air.c_str(),
+                    mqtt_line2[0] ? mqtt_line2 : hum.c_str(),
+                    mqtt_line3[0] ? mqtt_line3 : water.c_str());
     }
 
     // Press and hold the button to reset to factory defaults
