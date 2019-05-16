@@ -623,6 +623,11 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
     {
         Serial.println("OTA request seen.\n");
         do_ota_upgrade(text);
+        // Any OTA upgrade will stop the mqtt client, so if the
+        // upgrade failed and we get here publishState() will fail.
+        // Just return here, and we will reconnect from within the
+        // loop().
+        return;
     }
 
     publishState();
