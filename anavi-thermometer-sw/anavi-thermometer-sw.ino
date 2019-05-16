@@ -147,9 +147,15 @@ char cmnd_ds_temp_coefficient_topic[20 + sizeof(machineId)];
 
 // The display can fit 26 "i":s on a single line.  It will fit even
 // less of other characters.
-char global_line1[26+1];
-char global_line2[26+1];
-char global_line3[26+1];
+char mqtt_line1[26+1];
+char mqtt_line2[26+1];
+char mqtt_line3[26+1];
+
+String sensor_line1;
+String sensor_line2;
+String sensor_line3;
+
+bool need_redraw = false;
 
 char stat_temp_coefficient_topic[14 + sizeof(machineId)];
 char stat_ds_temp_coefficient_topic[20 + sizeof(machineId)];
@@ -231,9 +237,10 @@ void save_calibration()
 void setup()
 {
     // put your setup code here, to run once:
-    strcpy(global_line1, "");
-    strcpy(global_line2, "");
-    strcpy(global_line3, "");
+    strcpy(mqtt_line1, "");
+    strcpy(mqtt_line2, "");
+    strcpy(mqtt_line3, "");
+    need_redraw = true;
     Serial.begin(115200);
     Serial.println();
     u8g2.begin();
@@ -675,17 +682,20 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
 
     if (strcmp(topic, line1_topic) == 0)
     {
-        snprintf(global_line1, sizeof(global_line1), "%s", text);
+        snprintf(mqtt_line1, sizeof(mqtt_line1), "%s", text);
+        need_redraw = true;
     }
 
     if (strcmp(topic, line2_topic) == 0)
     {
-        snprintf(global_line2, sizeof(global_line2), "%s", text);
+        snprintf(mqtt_line2, sizeof(mqtt_line2), "%s", text);
+        need_redraw = true;
     }
 
     if (strcmp(topic, line3_topic) == 0)
     {
-        snprintf(global_line3, sizeof(global_line3), "%s", text);
+        snprintf(mqtt_line3, sizeof(mqtt_line3), "%s", text);
+        need_redraw = true;
     }
 
     if (strcmp(topic, cmnd_temp_coefficient_topic) == 0)
@@ -1061,15 +1071,15 @@ void loop()
             publishSensorData("air/temperature", "temperature", temp);
             publishSensorData("air/humidity", "humidity", humidity);
         }
-        String air="Air "+String(dhtTemperature, 1)+"C ";
-        Serial.println(air);
-        String hum="Humidity "+String(dhtHumidity, 0)+"%";
-        Serial.println(hum);
+        sensor_line1 = "Air "+String(dhtTemperature, 1)+"C ";
+        Serial.println(sensor_line1);
+        sensor_line2 = "Humidity "+String(dhtHumidity, 0)+"%";
+        Serial.println(sensor_line2);
 
         long rssiValue = WiFi.RSSI();
         String rssi = String(rssiValue) + " dBm";
         Serial.println(rssi);
-        String water;
+        sensor_line3 = "";
         if (0 < sensors.getDeviceCount())
         {
             sensors.requestTemperatures();
@@ -1077,13 +1087,14 @@ void loop()
             wtemp = wtemp * dsTemperatureCoef;
             dsTemperature = wtemp;
             publishSensorData("water/temperature", "temperature", wtemp);
-            water="Water "+String(dsTemperature,1)+"C";
-            Serial.println(water);
+            sensor_line3 = "Water "+String(dsTemperature,1)+"C";
+            Serial.println(sensor_line3);
         }
         else
         {
-            water = rssi;
+            sensor_line3 = rssi;
         }
+        need_redraw = true;
 
         publishSensorData("wifi/ssid", "ssid", WiFi.SSID());
         publishSensorData("wifi/bssid", "bssid", WiFi.BSSIDstr());
@@ -1096,10 +1107,14 @@ void loop()
         snprintf(chipid, sizeof(chipid), "%08x", ESP.getChipId());
         publishSensorData("chipid", "chipid", chipid);
 #endif
+    }
 
-        drawDisplay(global_line1[0] ? global_line1 : air.c_str(),
-                    global_line2[0] ? global_line2 : hum.c_str(),
-                    global_line3[0] ? global_line3 : water.c_str());
+    if (need_redraw)
+    {
+        drawDisplay(mqtt_line1[0] ? mqtt_line1 : sensor_line1.c_str(),
+                    mqtt_line2[0] ? mqtt_line2 : sensor_line2.c_str(),
+                    mqtt_line3[0] ? mqtt_line3 : sensor_line3.c_str());
+        need_redraw = false;
     }
 
     // Press and hold the button to reset to factory defaults
