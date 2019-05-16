@@ -155,6 +155,8 @@ String sensor_line1;
 String sensor_line2;
 String sensor_line3;
 
+bool need_redraw = false;
+
 char stat_temp_coefficient_topic[14 + sizeof(machineId)];
 char stat_ds_temp_coefficient_topic[20 + sizeof(machineId)];
 
@@ -238,6 +240,7 @@ void setup()
     strcpy(mqtt_line1, "");
     strcpy(mqtt_line2, "");
     strcpy(mqtt_line3, "");
+    need_redraw = true;
     Serial.begin(115200);
     Serial.println();
     u8g2.begin();
@@ -680,16 +683,19 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
     if (strcmp(topic, line1_topic) == 0)
     {
         snprintf(mqtt_line1, sizeof(mqtt_line1), "%s", text);
+        need_redraw = true;
     }
 
     if (strcmp(topic, line2_topic) == 0)
     {
         snprintf(mqtt_line2, sizeof(mqtt_line2), "%s", text);
+        need_redraw = true;
     }
 
     if (strcmp(topic, line3_topic) == 0)
     {
         snprintf(mqtt_line3, sizeof(mqtt_line3), "%s", text);
+        need_redraw = true;
     }
 
     if (strcmp(topic, cmnd_temp_coefficient_topic) == 0)
@@ -1088,6 +1094,7 @@ void loop()
         {
             sensor_line3 = rssi;
         }
+        need_redraw = true;
 
         publishSensorData("wifi/ssid", "ssid", WiFi.SSID());
         publishSensorData("wifi/bssid", "bssid", WiFi.BSSIDstr());
@@ -1100,10 +1107,14 @@ void loop()
         snprintf(chipid, sizeof(chipid), "%08x", ESP.getChipId());
         publishSensorData("chipid", "chipid", chipid);
 #endif
+    }
 
+    if (need_redraw)
+    {
         drawDisplay(mqtt_line1[0] ? mqtt_line1 : sensor_line1.c_str(),
                     mqtt_line2[0] ? mqtt_line2 : sensor_line2.c_str(),
                     mqtt_line3[0] ? mqtt_line3 : sensor_line3.c_str());
+        need_redraw = false;
     }
 
     // Press and hold the button to reset to factory defaults
