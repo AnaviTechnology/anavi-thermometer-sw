@@ -330,11 +330,11 @@ void setup()
     // The extra parameters to be configured (can be either global or just in the setup)
     // After connecting, parameter.getValue() will get you the configured value
     // id/name placeholder/prompt default length
-    WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
-    WiFiManagerParameter custom_mqtt_port("port", "mqtt port", mqtt_port, 6);
-    WiFiManagerParameter custom_workgroup("workgroup", "workgroup", workgroup, 32);
-    WiFiManagerParameter custom_mqtt_user("user", "MQTT username", username, 20);
-    WiFiManagerParameter custom_mqtt_pass("pass", "MQTT password", password, 20);
+    WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, sizeof(mqtt_server));
+    WiFiManagerParameter custom_mqtt_port("port", "mqtt port", mqtt_port, sizeof(mqtt_port));
+    WiFiManagerParameter custom_workgroup("workgroup", "workgroup", workgroup, sizeof(workgroup));
+    WiFiManagerParameter custom_mqtt_user("user", "MQTT username", username, sizeof(username));
+    WiFiManagerParameter custom_mqtt_pass("pass", "MQTT password", password, sizeof(password));
 #ifdef HOME_ASSISTANT_DISCOVERY
     WiFiManagerParameter custom_mqtt_ha_name("ha_name", "Sensor name for Home Assistant", ha_name, sizeof(ha_name));
 #endif
