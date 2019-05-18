@@ -83,8 +83,6 @@ const int sensorBMP180 = 0x77;
 const int pinAlarm = 16;
 const int pinButton = 0;
 
-bool power = false;
-
 unsigned long sensorPreviousMillis = 0;
 const long sensorInterval = 10000;
 
@@ -131,9 +129,6 @@ bool shouldSaveConfig = false;
 // MQTT
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
-long lastMsg = 0;
-char msg[50];
-int value = 0;
 
 #ifdef OTA_UPGRADES
 char cmnd_update_topic[12 + sizeof(machineId)];
