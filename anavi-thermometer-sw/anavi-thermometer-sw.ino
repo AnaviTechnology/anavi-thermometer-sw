@@ -857,7 +857,7 @@ void publishSensorData(const char* subTopic, const char* key, const float value)
     char payload[100];
     JsonObject& json = jsonBuffer.createObject();
     json[key] = value;
-    json.printTo((char*)payload, json.measureLength() + 1);
+    json.printTo(payload);
     char topic[200];
     sprintf(topic,"%s/%s/%s", workgroup, machineId, subTopic);
     mqttClient.publish(topic, payload, true);
@@ -869,7 +869,7 @@ void publishSensorData(const char* subTopic, const char* key, const String& valu
     char payload[100];
     JsonObject& json = jsonBuffer.createObject();
     json[key] = value;
-    json.printTo((char*)payload, json.measureLength() + 1);
+    json.printTo(payload);
     char topic[200];
     sprintf(topic,"%s/%s/%s", workgroup, machineId, subTopic);
     mqttClient.publish(topic, payload, true);
