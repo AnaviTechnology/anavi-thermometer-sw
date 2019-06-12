@@ -771,38 +771,34 @@ void mqttReconnect()
 }
 
 #ifdef HOME_ASSISTANT_DISCOVERY
-const char *temp_template = (
-    "{\"device_class\": \"temperature\", "
-    "\"name\": \"%s Temp\", "
-    "\"state_topic\": \"%s/%s/air/temperature\", "
-    "\"unit_of_measurement\": \"°C\", "
-    "\"value_template\": \"{{ value_json.temperature}}\" }");
-
-const char *humid_template = (
-    "{\"device_class\": \"humidity\", "
-    "\"name\": \"%s Humidity\", "
-    "\"state_topic\": \"%s/%s/air/humidity\", "
-    "\"unit_of_measurement\": \"%%\", "
-    "\"value_template\": \"{{ value_json.humidity}}\" }");
-
-const char *water_temp_template = (
-    "{\"device_class\": \"temperature\", "
-    "\"name\": \"%s Water Temp\", "
-    "\"state_topic\": \"%s/%s/water/temperature\", "
-    "\"unit_of_measurement\": \"°C\", "
-    "\"value_template\": \"{{ value_json.temperature}}\" }");
-
-bool publishLargePayload(const char *topic, const char *payload, bool retained)
+bool publishSensorDiscovery(const char *config_key,
+                            const char *device_class,
+                            const char *name_suffix,
+                            const char *state_topic,
+                            const char *unit,
+                            const char *value_template)
 {
-    size_t payload_len = strlen(payload);
+    static char topic[48 + sizeof(machineId)];
 
+    snprintf(topic, sizeof(topic),
+             "homeassistant/sensor/%s/%s/config", machineId, config_key);
+
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.createObject();
+    json["device_class"] = device_class;
+    json["name"] = String(ha_name) + " " + name_suffix;
+    json["state_topic"] = String(workgroup) + "/" + machineId + state_topic;
+    json["unit_of_measurement"] = unit;
+    json["value_template"] = value_template;
+
+    int payload_len = json.measureLength();
     if (!mqttClient.beginPublish(topic, payload_len, true))
     {
         Serial.println("beginPublish failed!\n");
         return false;
     }
 
-    if (mqttClient.write((uint8_t*)payload, payload_len) != payload_len)
+    if (json.printTo(mqttClient) != payload_len)
     {
         Serial.println("writing payload: wrong size!\n");
         return false;
@@ -820,33 +816,35 @@ bool publishLargePayload(const char *topic, const char *payload, bool retained)
 
 void publishState()
 {
-    static char payload[300];
-    static char topic[80];
+    static char payload[80];
     snprintf(payload, sizeof(payload), "%f", temperatureCoef);
     mqttClient.publish(stat_temp_coefficient_topic, payload, true);
     snprintf(payload, sizeof(payload), "%f", dsTemperatureCoef);
     mqttClient.publish(stat_ds_temp_coefficient_topic, payload, true);
 
 #ifdef HOME_ASSISTANT_DISCOVERY
-    snprintf(payload, sizeof(payload),
-             temp_template, ha_name, workgroup, machineId);
-    snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/%s/temp/config", machineId);
-    publishLargePayload(topic, payload, true);
+    publishSensorDiscovery("temp",
+                           "temperature",
+                           "Temp",
+                           "/air/temperature",
+                           "°C",
+                           "{{ value_json.temperature }}");
 
-    snprintf(payload, sizeof(payload),
-             humid_template, ha_name, workgroup, machineId);
-    snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/%s/humidity/config", machineId);
-    publishLargePayload(topic, payload, true);
+    publishSensorDiscovery("humidity",
+                           "humidity",
+                           "Humidity",
+                           "/air/humidity",
+                           "%",
+                           "{{ value_json.humidity }}");
 
     if (0 < sensors.getDeviceCount())
     {
-        snprintf(payload, sizeof(payload),
-                 water_temp_template, ha_name, workgroup, machineId);
-        snprintf(topic, sizeof(topic),
-                 "homeassistant/sensor/%s/watertemp/config", machineId);
-        publishLargePayload(topic, payload, true);
+        publishSensorDiscovery("watertemp",
+                               "temperature",
+                               "Water Temp",
+                               "/water/temperature",
+                               "°C",
+                               "{{ value_json.temperature }}");
     }
 #endif
 }
