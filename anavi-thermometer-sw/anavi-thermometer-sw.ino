@@ -787,9 +787,26 @@ bool publishSensorDiscovery(const char *config_key,
     JsonObject& json = jsonBuffer.createObject();
     json["device_class"] = device_class;
     json["name"] = String(ha_name) + " " + name_suffix;
+    json["unique_id"] = String("anavi-") + machineId + "-" + config_key;
     json["state_topic"] = String(workgroup) + "/" + machineId + state_topic;
     json["unit_of_measurement"] = unit;
     json["value_template"] = value_template;
+
+    JsonObject& device = jsonBuffer.createObject();
+
+    device["identifiers"] = machineId;
+    device["manufacturer"] = "ANAVI Technology";
+    device["model"] = "ANAVI Thermometer";
+    device["name"] = ha_name;
+    device["sw_version"] = ESP.getSketchMD5();
+
+    JsonArray& conns = jsonBuffer.createArray();
+    JsonArray& pair = conns.createNestedArray();
+    pair.add("mac");
+    pair.add(WiFi.macAddress());
+    device["connections"] = conns;
+
+    json["device"] = device;
 
     int payload_len = json.measureLength();
     if (!mqttClient.beginPublish(topic, payload_len, true))
