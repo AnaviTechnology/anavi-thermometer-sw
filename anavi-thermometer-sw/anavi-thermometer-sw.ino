@@ -1087,7 +1087,7 @@ void loop()
         Serial.println(sensor_line2);
 
         long rssiValue = WiFi.RSSI();
-        String rssi = String(rssiValue) + " dBm";
+        String rssi = "WiFi " +String(rssiValue) + " dBm";
         Serial.println(rssi);
         sensor_line3 = "";
         if (0 < sensors.getDeviceCount())
