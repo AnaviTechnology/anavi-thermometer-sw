@@ -36,6 +36,7 @@
 
 //needed for library
 #include <DNSServer.h>
+#include <NTPClient.h>
 #include <ESP8266WebServer.h>
 #include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager
 
@@ -57,6 +58,10 @@
 // For BMP180
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP085_U.h>
+
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP);
 
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
@@ -238,6 +243,7 @@ void setup()
     need_redraw = true;
     Serial.begin(115200);
     Serial.println();
+    timeClient.begin();
     u8g2.begin();
     dht.begin();
     sensors.begin();
@@ -1102,8 +1108,18 @@ void loop()
         }
         else
         {
-            sensor_line3 = rssi;
+            static int select = 0;
+            switch (++select%2) {
+              case 0:
+                timeClient.update();
+                sensor_line3 = "UTC: " + timeClient.getFormattedTime();
+                break;
+              default:
+                sensor_line3 = rssi;
+                break;
+            }
         }
+
         need_redraw = true;
 
         publishSensorData("wifi/ssid", "ssid", WiFi.SSID());
