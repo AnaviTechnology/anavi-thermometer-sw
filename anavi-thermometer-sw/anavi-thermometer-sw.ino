@@ -842,17 +842,17 @@ void publishState()
 #ifdef HOME_ASSISTANT_DISCOVERY
     publishSensorDiscovery("temp",
                            "temperature",
-                           "Temp",
+                           "Temperature",
                            "/air/temperature",
                            "°C",
-                           "{{ value_json.temperature }}");
+                           "{{ value_json.temperature | round(1) }}");
 
     publishSensorDiscovery("humidity",
                            "humidity",
                            "Humidity",
                            "/air/humidity",
                            "%",
-                           "{{ value_json.humidity }}");
+                           "{{ value_json.humidity | round(0) }}");
 
     if (0 < sensors.getDeviceCount())
     {
