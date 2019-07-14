@@ -700,6 +700,31 @@ void do_ota_upgrade(char *text)
 }
 #endif
 
+void processMessageScale(const char* text)
+{
+    StaticJsonBuffer<200> jsonBuffer;
+    JsonObject& data = jsonBuffer.parseObject(text);
+    // Set temperature to Celsius or Fahrenheit and redraw screen
+    Serial.print("Changing the temperature scale to: ");
+    if (data.containsKey("scale") && (0 == strcmp(data["scale"], "celsius")) )
+    {
+        Serial.println("Celsius");
+        configTempCelcius = true;
+        strcpy(temp_scale, "celsius");
+    }
+    else
+    {
+        Serial.println("Fahrenheit");
+        configTempCelcius = false;
+        strcpy(temp_scale, "fahrenheit");
+    }
+    // Force default sensor lines with the new format for temperature
+    setDefaultSensorLines();
+    need_redraw = true;
+    // Save configurations to file
+    saveConfig();
+}
+
 void mqttCallback(char* topic, byte* payload, unsigned int length)
 {
     // Convert received bytes to a string
@@ -743,25 +768,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
 
     if (strcmp(topic, cmnd_temp_format) == 0)
     {
-        // Set temperature to Celsius or Fahrenheit and redraw screen
-        Serial.print("Changing the temperature scale to: ");
-        if (1 == atoi(text))
-        {
-            Serial.println("Celsius");
-            configTempCelcius = true;
-            strcpy(temp_scale, "celsius");
-        }
-        else
-        {
-            Serial.println("Fahrenheit");
-            configTempCelcius = false;
-            strcpy(temp_scale, "fahrenheit");
-        }
-        // Force default sensor lines with the new format for temperature
-        setDefaultSensorLines();
-        need_redraw = true;
-        // Save configurations to file
-        saveConfig();
+        processMessageScale(text);
     }
 
 #ifdef OTA_UPGRADES
