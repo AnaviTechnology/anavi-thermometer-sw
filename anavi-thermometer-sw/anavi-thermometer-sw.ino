@@ -149,6 +149,7 @@ char line2_topic[11 + sizeof(machineId)];
 char line3_topic[11 + sizeof(machineId)];
 char cmnd_temp_coefficient_topic[14 + sizeof(machineId)];
 char cmnd_ds_temp_coefficient_topic[20 + sizeof(machineId)];
+char cmnd_temp_format[16 + sizeof(machineId)];
 
 // The display can fit 26 "i":s on a single line.  It will fit even
 // less of other characters.
@@ -334,6 +335,7 @@ void setup()
     sprintf(stat_temp_coefficient_topic, "stat/%s/tempcoef", machineId);
     sprintf(cmnd_ds_temp_coefficient_topic, "cmnd/%s/water/tempcoef", machineId);
     sprintf(stat_ds_temp_coefficient_topic, "stat/%s/water/tempcoef", machineId);
+    sprintf(cmnd_temp_format, "cmnd/%s/tempformat", machineId);
 #ifdef OTA_UPGRADES
     sprintf(cmnd_update_topic, "cmnd/%s/update", machineId);
 #endif
@@ -716,6 +718,25 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
         save_calibration();
     }
 
+    if (strcmp(topic, cmnd_temp_format) == 0)
+    {
+        // Set temperature to Celsius or Fahrenheit and redraw screen
+        Serial.print("Changing the temperature scale to: ");
+        if (1 == atoi(text))
+        {
+          Serial.println("Celsius");
+          configTempCelcius = true;
+        }
+        else
+        {
+          Serial.println("Fahrenheit");
+          configTempCelcius = false;
+        }
+        // Force default sensor lines with the new format for temperature
+        setDefaultSensorLines();
+        need_redraw = true;
+    }
+
 #ifdef OTA_UPGRADES
     if (strcmp(topic, cmnd_update_topic) == 0)
     {
@@ -763,6 +784,7 @@ void mqttReconnect()
             mqttClient.subscribe(line3_topic);
             mqttClient.subscribe(cmnd_temp_coefficient_topic);
             mqttClient.subscribe(cmnd_ds_temp_coefficient_topic);
+            mqttClient.subscribe(cmnd_temp_format);
 #ifdef OTA_UPGRADES
             mqttClient.subscribe(cmnd_update_topic);
 #endif
@@ -1068,6 +1090,15 @@ String formatTemperature(float temperature)
     return String(convertTemperature(temperature), 1) + unit;
 }
 
+void setDefaultSensorLines()
+{
+    sensor_line1 = "Air " + formatTemperature(dhtTemperature);
+    Serial.println(sensor_line1);
+    sensor_line2 = "Humidity " + String(dhtHumidity, 0) + "%";
+    Serial.println(sensor_line2);
+    sensor_line3 = "";
+}
+
 void loop()
 {
     // put your main code here, to run repeatedly:
@@ -1106,15 +1137,11 @@ void loop()
             publishSensorData("air/temperature", "temperature", convertTemperature(temp));
             publishSensorData("air/humidity", "humidity", humidity);
         }
-        sensor_line1 = "Air " + formatTemperature(dhtTemperature);
-        Serial.println(sensor_line1);
-        sensor_line2 = "Humidity " + String(dhtHumidity, 0) + "%";
-        Serial.println(sensor_line2);
+        setDefaultSensorLines();
 
         long rssiValue = WiFi.RSSI();
         String rssi = "WiFi " + String(rssiValue) + " dBm";
         Serial.println(rssi);
-        sensor_line3 = "";
         if (0 < sensors.getDeviceCount())
         {
             sensors.requestTemperatures();
