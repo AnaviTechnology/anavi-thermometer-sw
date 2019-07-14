@@ -123,6 +123,11 @@ char ha_name[32+1] = "";        // Make sure the machineId fits.
 char ota_server[40];
 #endif
 
+// Set the temperature in Celsius or Fahrenheit
+// true - Celsius, false - Fahrenheit
+bool configTempCelcius = true;
+
+
 // MD5 of chip ID.  If you only have a handful of thermometers and use
 // your own MQTT broker (instead of iot.eclips.org) you may want to
 // truncate the MD5 by changing the 32 to a smaller value.
@@ -912,11 +917,10 @@ void handleHTU21D()
         // Print new temprature value
         sensorTemperature = tempTemperature;
         Serial.print("Temperature: ");
-        Serial.print(sensorTemperature);
-        Serial.println("C");
+        Serial.println(formatTemperature(sensorTemperature));
 
         // Publish new temperature value through MQTT
-        publishSensorData("temperature", "temperature", sensorTemperature);
+        publishSensorData("temperature", "temperature", convertTemperature(sensorTemperature));
     }
 
     // Check if humidity has changed
@@ -1017,8 +1021,7 @@ void handleBMP()
   float temperature;
   bmp.getTemperature(&temperature);
   Serial.print("BMP180 Temperature: ");
-  Serial.print(temperature);
-  Serial.println(" C");
+  Serial.println(formatTemperature(temperature));
   // For accurate results replace SENSORS_PRESSURE_SEALEVELHPA with the current SLP
   float seaLevelPressure = SENSORS_PRESSURE_SEALEVELHPA;
   float altitude;
@@ -1029,7 +1032,7 @@ void handleBMP()
 
   // Publish new pressure values through MQTT
   publishSensorData("BMPpressure", "BMPpressure", event.pressure);
-  publishSensorData("BMPtemperature", "BMPtemperature", temperature);
+  publishSensorData("BMPtemperature", "BMPtemperature", convertTemperature(temperature));
   publishSensorData("BMPaltitude", "BMPaltitude", altitude);
 }
 
@@ -1047,6 +1050,22 @@ void handleSensors()
     {
       handleBMP();
     }
+}
+
+float convertCelsiusToFahrenheit(float temperature)
+{
+    return (temperature * 9/5 + 32);
+}
+
+float convertTemperature(float temperature)
+{
+    return (true == configTempCelcius) ? temperature : convertCelsiusToFahrenheit(temperature);
+}
+
+String formatTemperature(float temperature)
+{
+    String unit = (true == configTempCelcius) ? "°C" : "°F";
+    return String(convertTemperature(temperature), 1) + unit;
 }
 
 void loop()
@@ -1084,16 +1103,16 @@ void loop()
 
             dhtTemperature = temp;
             dhtHumidity = humidity;
-            publishSensorData("air/temperature", "temperature", temp);
+            publishSensorData("air/temperature", "temperature", convertTemperature(temp));
             publishSensorData("air/humidity", "humidity", humidity);
         }
-        sensor_line1 = "Air "+String(dhtTemperature, 1)+"C ";
+        sensor_line1 = "Air " + formatTemperature(dhtTemperature);
         Serial.println(sensor_line1);
-        sensor_line2 = "Humidity "+String(dhtHumidity, 0)+"%";
+        sensor_line2 = "Humidity " + String(dhtHumidity, 0) + "%";
         Serial.println(sensor_line2);
 
         long rssiValue = WiFi.RSSI();
-        String rssi = "WiFi " +String(rssiValue) + " dBm";
+        String rssi = "WiFi " + String(rssiValue) + " dBm";
         Serial.println(rssi);
         sensor_line3 = "";
         if (0 < sensors.getDeviceCount())
@@ -1102,8 +1121,8 @@ void loop()
             float wtemp = sensors.getTempCByIndex(0);
             wtemp = wtemp * dsTemperatureCoef;
             dsTemperature = wtemp;
-            publishSensorData("water/temperature", "temperature", wtemp);
-            sensor_line3 = "Water "+String(dsTemperature,1)+"C";
+            publishSensorData("water/temperature", "temperature", convertTemperature(wtemp));
+            sensor_line3 = "Water " + formatTemperature(dsTemperature);
             Serial.println(sensor_line3);
         }
         else
