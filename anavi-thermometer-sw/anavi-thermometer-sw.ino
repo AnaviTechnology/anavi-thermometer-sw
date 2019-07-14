@@ -122,6 +122,7 @@ char ha_name[32+1] = "";        // Make sure the machineId fits.
 #ifdef OTA_UPGRADES
 char ota_server[40];
 #endif
+char temp_scale[40] = "celsius";
 
 // Set the temperature in Celsius or Fahrenheit
 // true - Celsius, false - Fahrenheit
@@ -296,6 +297,7 @@ void setup()
                     strcpy(workgroup, json["workgroup"]);
                     strcpy(username, json["username"]);
                     strcpy(password, json["password"]);
+                    strcpy(temp_scale, json["temp_scale"]);
 #ifdef HOME_ASSISTANT_DISCOVERY
                     {
                         const char *s = json.get<const char*>("ha_name");
@@ -354,6 +356,7 @@ void setup()
 #ifdef OTA_UPGRADES
     WiFiManagerParameter custom_ota_server("ota_server", "OTA server", ota_server, sizeof(ota_server));
 #endif
+    WiFiManagerParameter custom_temperature_scale("temp_scale", "Temperature scale", temp_scale, sizeof(temp_scale));
 
     char htmlMachineId[200];
     sprintf(htmlMachineId,"<p style=\"color: red;\">Machine ID:</p><p><b>%s</b></p><p>Copy and save the machine ID because you will need it to control the device.</p>", machineId);
@@ -372,6 +375,7 @@ void setup()
     wifiManager.addParameter(&custom_workgroup);
     wifiManager.addParameter(&custom_mqtt_user);
     wifiManager.addParameter(&custom_mqtt_pass);
+    wifiManager.addParameter(&custom_temperature_scale);
 #ifdef HOME_ASSISTANT_DISCOVERY
     wifiManager.addParameter(&custom_mqtt_ha_name);
 #endif
@@ -419,6 +423,7 @@ void setup()
     strcpy(workgroup, custom_workgroup.getValue());
     strcpy(username, custom_mqtt_user.getValue());
     strcpy(password, custom_mqtt_pass.getValue());
+    strcpy(temp_scale, custom_temperature_scale.getValue());
 #ifdef HOME_ASSISTANT_DISCOVERY
     strcpy(ha_name, custom_mqtt_ha_name.getValue());
 #endif
@@ -437,6 +442,7 @@ void setup()
         json["workgroup"] = workgroup;
         json["username"] = username;
         json["password"] = password;
+        json["temp_scale"] = temp_scale;
 #ifdef HOME_ASSISTANT_DISCOVERY
         json["ha_name"] = ha_name;
 #endif
@@ -482,6 +488,18 @@ void setup()
     hiddenpass[strlen(password)] = '\0';
     Serial.print("MQTT Password: ");
     Serial.println(hiddenpass);
+    Serial.print("Saved temperature scale: ");
+    Serial.println(temp_scale);
+    configTempCelcius = String(temp_scale).equalsIgnoreCase("celsius");
+    Serial.print("Temperature scale: ");
+    if (true == configTempCelcius)
+    {
+      Serial.println("Celsius");
+    }
+    else
+    {
+      Serial.println("Fahrenheit");
+    }
 #ifdef HOME_ASSISTANT_DISCOVERY
     Serial.print("Home Assistant sensor name: ");
     Serial.println(ha_name);
