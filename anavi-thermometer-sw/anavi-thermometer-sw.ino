@@ -241,6 +241,36 @@ void save_calibration()
     configFile.close();
 }
 
+void saveConfig()
+{
+    Serial.println("Saving configurations to file.");
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.createObject();
+    json["mqtt_server"] = mqtt_server;
+    json["mqtt_port"] = mqtt_port;
+    json["workgroup"] = workgroup;
+    json["username"] = username;
+    json["password"] = password;
+    json["temp_scale"] = temp_scale;
+#ifdef HOME_ASSISTANT_DISCOVERY
+    json["ha_name"] = ha_name;
+#endif
+#ifdef OTA_UPGRADES
+    json["ota_server"] = ota_server;
+#endif
+
+    File configFile = SPIFFS.open("/config.json", "w");
+    if (!configFile)
+    {
+        Serial.println("ERROR: failed to open config file for writing");
+        return;
+    }
+
+    json.printTo(Serial);
+    json.printTo(configFile);
+    configFile.close();
+}
+
 void setup()
 {
     // put your setup code here, to run once:
@@ -434,32 +464,7 @@ void setup()
     //save the custom parameters to FS
     if (shouldSaveConfig)
     {
-        Serial.println("saving config");
-        DynamicJsonBuffer jsonBuffer;
-        JsonObject& json = jsonBuffer.createObject();
-        json["mqtt_server"] = mqtt_server;
-        json["mqtt_port"] = mqtt_port;
-        json["workgroup"] = workgroup;
-        json["username"] = username;
-        json["password"] = password;
-        json["temp_scale"] = temp_scale;
-#ifdef HOME_ASSISTANT_DISCOVERY
-        json["ha_name"] = ha_name;
-#endif
-#ifdef OTA_UPGRADES
-        json["ota_server"] = ota_server;
-#endif
-
-        File configFile = SPIFFS.open("/config.json", "w");
-        if (!configFile)
-        {
-            Serial.println("failed to open config file for writing");
-        }
-
-        json.printTo(Serial);
-        json.printTo(configFile);
-        configFile.close();
-        //end save
+        saveConfig();
     }
 
     Serial.println("local ip");
@@ -490,7 +495,7 @@ void setup()
     Serial.println(hiddenpass);
     Serial.print("Saved temperature scale: ");
     Serial.println(temp_scale);
-    configTempCelcius = String(temp_scale).equalsIgnoreCase("celsius");
+    configTempCelcius = ( (0 == strlen(temp_scale)) || String(temp_scale).equalsIgnoreCase("celsius"));
     Serial.print("Temperature scale: ");
     if (true == configTempCelcius)
     {
@@ -742,17 +747,21 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
         Serial.print("Changing the temperature scale to: ");
         if (1 == atoi(text))
         {
-          Serial.println("Celsius");
-          configTempCelcius = true;
+            Serial.println("Celsius");
+            configTempCelcius = true;
+            strcpy(temp_scale, "celsius");
         }
         else
         {
-          Serial.println("Fahrenheit");
-          configTempCelcius = false;
+            Serial.println("Fahrenheit");
+            configTempCelcius = false;
+            strcpy(temp_scale, "fahrenheit");
         }
         // Force default sensor lines with the new format for temperature
         setDefaultSensorLines();
         need_redraw = true;
+        // Save configurations to file
+        saveConfig();
     }
 
 #ifdef OTA_UPGRADES
