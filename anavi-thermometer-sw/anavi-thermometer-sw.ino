@@ -1170,6 +1170,11 @@ void loop()
             dhtHumidity = humidity;
             publishSensorData("air/temperature", "temperature", convertTemperature(temp));
             publishSensorData("air/humidity", "humidity", humidity);
+
+            // Calculate heat index
+            float dhtHeatIndex = dht.computeHeatIndex(dhtTemperature, dhtHumidity, false);
+            publishSensorData("air/heatindex", "heatindex", convertTemperature(dhtHeatIndex));
+            Serial.println("DHT Heat Index: " + formatTemperature(dhtHeatIndex));
         }
         setDefaultSensorLines();
 
