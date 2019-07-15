@@ -907,11 +907,12 @@ void publishState()
     mqttClient.publish(stat_ds_temp_coefficient_topic, payload, true);
 
 #ifdef HOME_ASSISTANT_DISCOVERY
+    String homeAssistantTempScale = (true == configTempCelcius) ? "°C" : "°F";
     publishSensorDiscovery("temp",
                            "temperature",
                            "Temperature",
                            "/air/temperature",
-                           "°C",
+                           homeAssistantTempScale.c_str(),
                            "{{ value_json.temperature | round(1) }}");
 
     publishSensorDiscovery("humidity",
