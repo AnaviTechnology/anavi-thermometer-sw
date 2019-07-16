@@ -327,7 +327,12 @@ void setup()
                     strcpy(workgroup, json["workgroup"]);
                     strcpy(username, json["username"]);
                     strcpy(password, json["password"]);
-                    strcpy(temp_scale, json["temp_scale"]);
+                    {
+                        const char *s = json.get<const char*>("temp_scale");
+                        if (!s)
+                            s = "celsius";
+                        strcpy(temp_scale, s);
+                    }
 #ifdef HOME_ASSISTANT_DISCOVERY
                     {
                         const char *s = json.get<const char*>("ha_name");
