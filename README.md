@@ -11,7 +11,7 @@ Open source Arduino sketch for the smart WiFi dev board [ANAVI Thermometer](http
 The default firmware of ANAVI Thermometer depends on the following Arduino libraries:
 
 * WiFiManager by tzapu (version 0.12.0)
-* ArduinoJson by Benoit Blanchon (version 5.11.1)
+* ArduinoJson by Benoit Blanchon (version 6.11.2)
 * PubSubClient by Nick O'Leary (version 2.7.0)
 * Adafruit HTU21DF Library by Adafruit (version 1.0.1)
 * Adafruit APDS9960 Library by Adafruit (version 1.0.5)

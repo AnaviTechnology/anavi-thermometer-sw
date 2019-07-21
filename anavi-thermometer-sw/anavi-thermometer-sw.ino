@@ -228,16 +228,16 @@ void load_calibration()
     const size_t size = configFile.size();
     std::unique_ptr<char[]> buf(new char[size]);
     configFile.readBytes(buf.get(), size);
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.parseObject(buf.get());
+    DynamicJsonDocument jsonBuffer(1024);
+    auto error = deserializeJson(jsonBuffer, buf.get());
     Serial.print("Loading /calibration.json: ");
-    json.printTo(Serial);
+    serializeJson(jsonBuffer, Serial);
     Serial.println("");
-    if (!json.success())
+    if (error)
         return;
-    const char *val = json.get<const char*>("dht22_temp_mult");
+    const char *val = jsonBuffer["dht22_temp_mult"];
     temperatureCoef = atof(val);
-    val = json.get<const char*>("ds18b20_temp_mult");
+    val = jsonBuffer["ds18b20_temp_mult"];
     dsTemperatureCoef = atof(val);
     configFile.close();
     Serial.print("DHT22: ");
@@ -248,14 +248,13 @@ void load_calibration()
 
 void save_calibration()
 {
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
+    DynamicJsonDocument jsonBuffer(1024);
     char buf_a[40];
     char buf_b[40];
     snprintf(buf_a, sizeof(buf_a), "%g", temperatureCoef);
     snprintf(buf_b, sizeof(buf_b), "%g", dsTemperatureCoef);
-    json["dht22_temp_mult"] = buf_a;
-    json["ds18b20_temp_mult"] = buf_b;
+    jsonBuffer["dht22_temp_mult"] = buf_a;
+    jsonBuffer["ds18b20_temp_mult"] = buf_b;
 
     File configFile = SPIFFS.open("/calibration.json", "w");
     if (!configFile)
@@ -264,17 +263,16 @@ void save_calibration()
         return;
     }
 
-    json.printTo(Serial);
+    serializeJson(jsonBuffer, Serial);
     Serial.println("");
-    json.printTo(configFile);
+    serializeJson(jsonBuffer, configFile);
     configFile.close();
 }
 
 void saveConfig()
 {
     Serial.println("Saving configurations to file.");
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
+    DynamicJsonDocument json(1024);
     json["mqtt_server"] = mqtt_server;
     json["mqtt_port"] = mqtt_port;
     json["workgroup"] = workgroup;
@@ -295,8 +293,8 @@ void saveConfig()
         return;
     }
 
-    json.printTo(Serial);
-    json.printTo(configFile);
+    serializeJson(json, Serial);
+    serializeJson(json, configFile);
     configFile.close();
 }
 
@@ -344,11 +342,10 @@ void setup()
                 std::unique_ptr<char[]> buf(new char[size]);
 
                 configFile.readBytes(buf.get(), size);
-                DynamicJsonBuffer jsonBuffer;
-                JsonObject& json = jsonBuffer.parseObject(buf.get());
-                json.printTo(Serial);
-                if (json.success())
+                DynamicJsonDocument json(1024);
+                if (DeserializationError::Ok == deserializeJson(json, buf.get()))
                 {
+                    serializeJson(json, Serial);
                     Serial.println("\nparsed json");
 
                     strcpy(mqtt_server, json["mqtt_server"]);
@@ -357,14 +354,14 @@ void setup()
                     strcpy(username, json["username"]);
                     strcpy(password, json["password"]);
                     {
-                        const char *s = json.get<const char*>("temp_scale");
+                        const char *s = json["temp_scale"];
                         if (!s)
                             s = "celsius";
                         strcpy(temp_scale, s);
                     }
 #ifdef HOME_ASSISTANT_DISCOVERY
                     {
-                        const char *s = json.get<const char*>("ha_name");
+                        const char *s = json["ha_name"];
                         if (!s)
                             s = machineId;
                         snprintf(ha_name, sizeof(ha_name), "%s", s);
@@ -372,7 +369,7 @@ void setup()
 #endif
 #ifdef OTA_UPGRADES
                     {
-                        const char *s = json.get<const char*>("ota_server");
+                        const char *s = json["ota_server"];
                         if (!s)
                             s = ""; // The empty string never matches.
                         snprintf(ota_server, sizeof(ota_server), "%s", s);
@@ -660,17 +657,17 @@ void factoryReset()
 #ifdef OTA_UPGRADES
 void do_ota_upgrade(char *text)
 {
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.parseObject(text);
-    if (!json.success())
+    DynamicJsonDocument json(1024);
+    auto error = deserializeJson(json, text);
+    if (error)
     {
         Serial.println("No success decoding JSON.\n");
     }
-    else if (!json.get<const char*>("server"))
+    else if (!json["server"])
     {
         Serial.println("JSON is missing server\n");
     }
-    else if (!json.get<const char*>("file"))
+    else if (!json["file"])
     {
         Serial.println("JSON is missing file\n");
     }
@@ -679,7 +676,7 @@ void do_ota_upgrade(char *text)
         int port = 0;
         if (json.containsKey("port"))
         {
-            port = json.get<int>("port");
+            port = json["port"];
             Serial.print("Port configured to ");
             Serial.println(port);
         }
@@ -689,8 +686,8 @@ void do_ota_upgrade(char *text)
             port = 80;
         }
 
-        String server = json.get<const char*>("server");
-        String file = json.get<const char*>("file");
+        String server = json["server"];
+        String file = json["file"];
 
         bool ok = false;
         if (ota_server[0] != '\0' && !strcmp(server.c_str(), ota_server))
@@ -736,8 +733,8 @@ void do_ota_upgrade(char *text)
 
 void processMessageScale(const char* text)
 {
-    StaticJsonBuffer<200> jsonBuffer;
-    JsonObject& data = jsonBuffer.parseObject(text);
+    StaticJsonDocument<200> data;
+    deserializeJson(data, text);
     // Set temperature to Celsius or Fahrenheit and redraw screen
     Serial.print("Changing the temperature scale to: ");
     if (data.containsKey("scale") && (0 == strcmp(data["scale"], "celsius")) )
@@ -884,8 +881,7 @@ bool publishSensorDiscovery(const char *config_key,
     snprintf(topic, sizeof(topic),
              "homeassistant/sensor/%s/%s/config", machineId, config_key);
 
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
+    DynamicJsonDocument json(1024);
     json["device_class"] = device_class;
     json["name"] = String(ha_name) + " " + name_suffix;
     json["unique_id"] = String("anavi-") + machineId + "-" + config_key;
@@ -893,30 +889,27 @@ bool publishSensorDiscovery(const char *config_key,
     json["unit_of_measurement"] = unit;
     json["value_template"] = value_template;
 
-    JsonObject& device = jsonBuffer.createObject();
+    json["device"]["identifiers"] = machineId;
+    json["device"]["manufacturer"] = "ANAVI Technology";
+    json["device"]["model"] = "ANAVI Thermometer";
+    json["device"]["name"] = ha_name;
+    json["device"]["sw_version"] = ESP.getSketchMD5();
 
-    device["identifiers"] = machineId;
-    device["manufacturer"] = "ANAVI Technology";
-    device["model"] = "ANAVI Thermometer";
-    device["name"] = ha_name;
-    device["sw_version"] = ESP.getSketchMD5();
+    JsonArray connections = json["device"].createNestedArray("connections").createNestedArray();
+    connections.add("mac");
+    connections.add(WiFi.macAddress());
 
-    JsonArray& conns = jsonBuffer.createArray();
-    JsonArray& pair = conns.createNestedArray();
-    pair.add("mac");
-    pair.add(WiFi.macAddress());
-    device["connections"] = conns;
+    Serial.print("Home Assistant discovery topic: ");
+    Serial.println(topic);
 
-    json["device"] = device;
-
-    int payload_len = json.measureLength();
+    int payload_len = measureJson(json);
     if (!mqttClient.beginPublish(topic, payload_len, true))
     {
         Serial.println("beginPublish failed!\n");
         return false;
     }
 
-    if (json.printTo(mqttClient) != payload_len)
+    if (serializeJson(json, mqttClient) != payload_len)
     {
         Serial.println("writing payload: wrong size!\n");
         return false;
@@ -970,11 +963,10 @@ void publishState()
 
 void publishSensorData(const char* subTopic, const char* key, const float value)
 {
-    StaticJsonBuffer<100> jsonBuffer;
-    char payload[100];
-    JsonObject& json = jsonBuffer.createObject();
+    StaticJsonDocument<100> json;
     json[key] = value;
-    json.printTo(payload);
+    char payload[100];
+    serializeJson(json, payload);
     char topic[200];
     sprintf(topic,"%s/%s/%s", workgroup, machineId, subTopic);
     mqttClient.publish(topic, payload, true);
@@ -982,11 +974,10 @@ void publishSensorData(const char* subTopic, const char* key, const float value)
 
 void publishSensorData(const char* subTopic, const char* key, const String& value)
 {
-    StaticJsonBuffer<100> jsonBuffer;
-    char payload[100];
-    JsonObject& json = jsonBuffer.createObject();
+    StaticJsonDocument<100> json;
     json[key] = value;
-    json.printTo(payload);
+    char payload[100];
+    serializeJson(json, payload);
     char topic[200];
     sprintf(topic,"%s/%s/%s", workgroup, machineId, subTopic);
     mqttClient.publish(topic, payload, true);
