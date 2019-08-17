@@ -156,7 +156,7 @@ char temp_scale[40] = "celsius";
 
 // Set the temperature in Celsius or Fahrenheit
 // true - Celsius, false - Fahrenheit
-bool configTempCelcius = true;
+bool configTempCelsius = true;
 
 
 // MD5 of chip ID.  If you only have a handful of thermometers and use
@@ -545,9 +545,9 @@ void setup()
     Serial.println(hiddenpass);
     Serial.print("Saved temperature scale: ");
     Serial.println(temp_scale);
-    configTempCelcius = ( (0 == strlen(temp_scale)) || String(temp_scale).equalsIgnoreCase("celsius"));
+    configTempCelsius = ( (0 == strlen(temp_scale)) || String(temp_scale).equalsIgnoreCase("celsius"));
     Serial.print("Temperature scale: ");
-    if (true == configTempCelcius)
+    if (true == configTempCelsius)
     {
       Serial.println("Celsius");
     }
@@ -759,13 +759,13 @@ void processMessageScale(const char* text)
     if (data.containsKey("scale") && (0 == strcmp(data["scale"], "celsius")) )
     {
         Serial.println("Celsius");
-        configTempCelcius = true;
+        configTempCelsius = true;
         strcpy(temp_scale, "celsius");
     }
     else
     {
         Serial.println("Fahrenheit");
-        configTempCelcius = false;
+        configTempCelsius = false;
         strcpy(temp_scale, "fahrenheit");
     }
     // Force default sensor lines with the new format for temperature
@@ -953,7 +953,7 @@ void publishState()
     mqttClient.publish(stat_ds_temp_coefficient_topic, payload, true);
 
 #ifdef HOME_ASSISTANT_DISCOVERY
-    String homeAssistantTempScale = (true == configTempCelcius) ? "°C" : "°F";
+    String homeAssistantTempScale = (true == configTempCelsius) ? "°C" : "°F";
     publishSensorDiscovery("temp",
                            "temperature",
                            "Temperature",
@@ -1160,12 +1160,12 @@ float convertCelsiusToFahrenheit(float temperature)
 
 float convertTemperature(float temperature)
 {
-    return (true == configTempCelcius) ? temperature : convertCelsiusToFahrenheit(temperature);
+    return (true == configTempCelsius) ? temperature : convertCelsiusToFahrenheit(temperature);
 }
 
 String formatTemperature(float temperature)
 {
-    String unit = (true == configTempCelcius) ? "°C" : "°F";
+    String unit = (true == configTempCelsius) ? "°C" : "°F";
     return String(convertTemperature(temperature), 1) + unit;
 }
 
