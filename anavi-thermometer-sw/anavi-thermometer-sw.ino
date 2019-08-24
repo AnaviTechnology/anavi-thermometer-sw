@@ -682,11 +682,11 @@ void do_ota_upgrade(char *text)
     {
         Serial.println("No success decoding JSON.\n");
     }
-    else if (!json["server"])
+    else if (!json.containsKey("server"))
     {
         Serial.println("JSON is missing server\n");
     }
-    else if (!json["file"])
+    else if (!json.containsKey("file"))
     {
         Serial.println("JSON is missing file\n");
     }
