@@ -483,7 +483,8 @@ void setup()
     //if it does not connect it starts an access point with the specified name
     //here  "AutoConnectAP"
     //and goes into a blocking loop awaiting configuration
-    if (!wifiManager.autoConnect("ANAVI Thermometer", ""))
+    String ap_ssid = String("ANAVI Thermometer ") + String(machineId);
+    if (!wifiManager.autoConnect(ap_ssid.c_str(), ""))
     {
         digitalWrite(pinAlarm, LOW);
         Serial.println("failed to connect and hit timeout");
