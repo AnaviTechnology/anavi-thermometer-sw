@@ -493,6 +493,7 @@ void setup()
         ESP.reset();
         delay(5000);
     }
+    WiFi.mode(WIFI_STA);
 
     //if you get here you have connected to the WiFi
     Serial.println("connected...yeey :)");
