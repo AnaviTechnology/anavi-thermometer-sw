@@ -60,6 +60,33 @@
 // This hack will likely increase the power consumption slightly.
 // #define ESP12_BLUE_LED_ALWAYS_ON
 
+// In the ANAVI Thermometer, GPIO12 is designed to be connected to the
+// external DS18B20 waterproof temperature sensor using a 1-Wire bus.
+// If you don't connect any 1-Wire sensor, you can instead use that
+// pin as an input pin for a button.  Connect a normally-closed switch
+// in series with a 470 ohm resistor between the DATA and GND of the
+// DS18B20 connector to use this.  The 470 ohm resistor ensures we
+// don't overload the GPIO port when it probes for 1-Wire devices.
+//
+// Whenever the switch is pressed (so that DATA is driven high), the
+// ANAVI Thermometer will publish an MQTT message to
+// $WORKGROUP/$MACHINEID/button/1 with the value
+//
+//     { "pressed": "ON" }
+//
+// Once the button is released, a new MQTT message will be sent:
+//
+//     { "pressed": "OFF" }
+//
+// The BUTTON_INTERVAL defines the minimum delay (in milliseconds)
+// between sending the above messages.  This serves two purposes:
+// ensure the button is debounced, and ensure the listener have time
+// to react to the message.
+//
+// The autodetection code only works if the button is not pressed
+// while the ANAVI Thermometer is started.
+#define BUTTON_INTERVAL 100
+
 #include <ESP8266WiFi.h>          //https://github.com/esp8266/Arduino
 #include <ESP8266httpUpdate.h>
 
@@ -120,6 +147,10 @@ const int pinButton = 0;
 
 unsigned long sensorPreviousMillis = 0;
 const long sensorInterval = 10000;
+
+bool haveButton = false;
+bool buttonState = false;
+unsigned long buttonPreviousMillis = 0;
 
 unsigned long mqttConnectionPreviousMillis = millis();
 const long mqttConnectionInterval = 60000;
@@ -329,7 +360,24 @@ void setup()
     timeClient.begin();
     u8g2.begin();
     dht.begin();
-    sensors.begin();
+    if (oneWire.reset())
+    {
+        sensors.begin();
+    }
+    else
+    {
+        pinMode(ONE_WIRE_BUS, INPUT);
+        delay(1);
+        if (false == digitalRead(ONE_WIRE_BUS))
+        {
+            haveButton = true;
+            buttonPreviousMillis = millis();
+        }
+        else
+        {
+            sensors.begin();
+        }
+    }
 
     delay(10);
 
@@ -890,7 +938,34 @@ void mqttReconnect()
 }
 
 #ifdef HOME_ASSISTANT_DISCOVERY
-bool publishSensorDiscovery(const char *config_key,
+// Publish an MQTT Discovery message for Home Assistant.
+//
+// Arguments:
+//
+// - component: the Home Assistant component type of the device, such
+//   as "sensor" or "binary_sensor".
+//
+// - config_key: a string that, when combined with the machineId,
+//   creates a unique name for this sensor.  Used both as the
+//   <object_id> in the discovery topic, and as part of the unique_id.
+//
+// - device_class: The device class (see
+//   <https://www.home-assistant.io/docs/configuration/customizing-devices/#device-class>).
+//   May be 0.
+//
+// - name_suffix: This will be appended to ha_name to create the
+//   human-readable name of this sensor.  Should typically be
+//   capitalized.
+//
+// - state_topic: The topic where this sensor publishes its state.
+//   The workgroup and machineId will be prepended to form the actual
+//   topic.  This should always start with a slash.
+//
+// - unit: The unit_of_measurement, or 0.
+//
+// - value_template: A template to extract a value from the payload.
+bool publishSensorDiscovery(const char *component,
+                            const char *config_key,
                             const char *device_class,
                             const char *name_suffix,
                             const char *state_topic,
@@ -900,14 +975,16 @@ bool publishSensorDiscovery(const char *config_key,
     static char topic[48 + sizeof(machineId)];
 
     snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/%s/%s/config", machineId, config_key);
+             "homeassistant/%s/%s/%s/config", component, machineId, config_key);
 
     DynamicJsonDocument json(1024);
-    json["device_class"] = device_class;
+    if (device_class)
+        json["device_class"] = device_class;
     json["name"] = String(ha_name) + " " + name_suffix;
     json["unique_id"] = String("anavi-") + machineId + "-" + config_key;
     json["state_topic"] = String(workgroup) + "/" + machineId + state_topic;
-    json["unit_of_measurement"] = unit;
+    if (unit)
+        json["unit_of_measurement"] = unit;
     json["value_template"] = value_template;
 
     json["device"]["identifiers"] = machineId;
@@ -956,23 +1033,36 @@ void publishState()
 
 #ifdef HOME_ASSISTANT_DISCOVERY
     String homeAssistantTempScale = (true == configTempCelsius) ? "°C" : "°F";
-    publishSensorDiscovery("temp",
+    publishSensorDiscovery("sensor",
+                           "temp",
                            "temperature",
                            "Temperature",
                            "/air/temperature",
                            homeAssistantTempScale.c_str(),
                            "{{ value_json.temperature | round(1) }}");
 
-    publishSensorDiscovery("humidity",
+    publishSensorDiscovery("sensor",
+                           "humidity",
                            "humidity",
                            "Humidity",
                            "/air/humidity",
                            "%",
                            "{{ value_json.humidity | round(0) }}");
 
-    if (0 < sensors.getDeviceCount())
+    if (haveButton)
     {
-        publishSensorDiscovery("watertemp",
+        publishSensorDiscovery("binary_sensor",
+                               "button",
+                               0,
+                               "Button 1",
+                               "/button/1",
+                               0,
+                               "{{ value_json.pressed }}");
+    }
+    else if (0 < sensors.getDeviceCount())
+    {
+        publishSensorDiscovery("sensor",
+                               "watertemp",
                                "temperature",
                                "Water Temp",
                                "/water/temperature",
@@ -1177,7 +1267,18 @@ void setDefaultSensorLines()
     Serial.println(sensor_line1);
     sensor_line2 = "Humidity " + String(dhtHumidity, 0) + "%";
     Serial.println(sensor_line2);
-    sensor_line3 = "";
+    if (haveButton)
+        displayButton();
+    else
+        sensor_line3 = "";
+}
+
+void displayButton()
+{
+    if (buttonState)
+        sensor_line3 = "Button: ON";
+    else
+        sensor_line3 = "Button: OFF";
 }
 
 void loop()
@@ -1200,6 +1301,23 @@ void loop()
     }
 
     const unsigned long currentMillis = millis();
+
+    // Handle button presses at a shorter interval
+    if (haveButton && BUTTON_INTERVAL <= (currentMillis - buttonPreviousMillis))
+    {
+        bool currentState = digitalRead(ONE_WIRE_BUS);
+
+        if (buttonState != currentState)
+        {
+            buttonState = currentState;
+            publishSensorData("button/1", "pressed",
+                              currentState ? "ON" : "OFF");
+            buttonPreviousMillis = currentMillis;
+            displayButton();
+            need_redraw = true;
+        }
+    }
+
     if (sensorInterval <= (currentMillis - sensorPreviousMillis))
     {
         sensorPreviousMillis = currentMillis;
@@ -1234,7 +1352,12 @@ void loop()
         long rssiValue = WiFi.RSSI();
         String rssi = "WiFi " + String(rssiValue) + " dBm";
         Serial.println(rssi);
-        if (0 < sensors.getDeviceCount())
+
+        if (haveButton)
+        {
+            displayButton();
+        }
+        else if (0 < sensors.getDeviceCount())
         {
             sensors.requestTemperatures();
             float wtemp = sensors.getTempCByIndex(0);
