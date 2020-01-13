@@ -582,17 +582,33 @@ void setup()
     Serial.print("MQTT Port: ");
     Serial.println(mqtt_port);
     // Print MQTT Username
-    Serial.print("MQTT Username: ");
-    Serial.println(username);
-    // Hide password from the log and show * instead
-    char hiddenpass[20] = "";
-    for (size_t charP=0; charP < strlen(password); charP++)
+    if (mqtt_username() != 0)
     {
-        hiddenpass[charP] = '*';
+        Serial.print("MQTT Username: ");
+        Serial.println(mqtt_username());
     }
-    hiddenpass[strlen(password)] = '\0';
-    Serial.print("MQTT Password: ");
-    Serial.println(hiddenpass);
+    else
+    {
+        Serial.println("No MQTT username");
+    }
+
+    if (mqtt_password() != 0)
+    {
+        // Hide password from the log and show * instead
+        char hiddenpass[20] = "";
+        for (size_t charP=0; charP < strlen(mqtt_password()); charP++)
+        {
+            hiddenpass[charP] = '*';
+        }
+        hiddenpass[strlen(password)] = '\0';
+        Serial.print("MQTT Password: ");
+        Serial.println(hiddenpass);
+    }
+    else
+    {
+        Serial.println("No MQTT password");
+    }
+
     Serial.print("Saved temperature scale: ");
     Serial.println(temp_scale);
     configTempCelsius = ( (0 == strlen(temp_scale)) || String(temp_scale).equalsIgnoreCase("celsius"));
@@ -898,6 +914,22 @@ void calculateMachineId()
     md5.toString().toCharArray(machineId, sizeof(machineId));
 }
 
+const char *mqtt_username()
+{
+    if (strlen(username) == 0)
+        return 0;
+
+    return username;
+}
+
+const char *mqtt_password()
+{
+    if (strlen(password) == 0)
+        return 0;
+
+    return password;
+}
+
 void mqttReconnect()
 {
     char clientId[18 + sizeof(machineId)];
@@ -908,7 +940,8 @@ void mqttReconnect()
     {
         Serial.print("Attempting MQTT connection...");
         // Attempt to connect
-        if (true == mqttClient.connect(clientId, username, password))
+        if (true == mqttClient.connect(clientId,
+                                       mqtt_username(), mqtt_password()))
         {
             Serial.println("connected");
 
