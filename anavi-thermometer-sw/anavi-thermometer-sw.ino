@@ -1,6 +1,19 @@
 // -*- mode: c++; indent-tabs-mode: nil; c-file-style: "stroustrup" -*-
 #include <FS.h>                   //this needs to be first, or it all crashes and burns...
 
+// Username and password to use for MQTT.  If these are defined, they
+// will override whatever is supplied on the wifi configuration page.
+// If MQTT_USERNAME and MQTT_PASSWORD are set to 0, an anonymous MQTT
+// connection will be used.
+
+// #define MQTT_USERNAME "user"
+// #define MQTT_PASSWORD "password"
+
+// Server to connect to.  If defined, this overrides the setting on
+// the wifi configuration page.
+
+// #define MQTT_SERVER "mydomain.duckdns.example.org"
+
 // If HOME_ASSISTANT_DISCOVERY is defined, the Anavi Thermometer will
 // publish MQTT messages that makes Home Assistant auto-discover the
 // device.  See https://www.home-assistant.io/docs/mqtt/discovery/.
@@ -473,11 +486,17 @@ void setup()
     // The extra parameters to be configured (can be either global or just in the setup)
     // After connecting, parameter.getValue() will get you the configured value
     // id/name placeholder/prompt default length
+#ifndef MQTT_SERVER
     WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, sizeof(mqtt_server));
+#endif
     WiFiManagerParameter custom_mqtt_port("port", "mqtt port", mqtt_port, sizeof(mqtt_port));
     WiFiManagerParameter custom_workgroup("workgroup", "workgroup", workgroup, sizeof(workgroup));
+#ifndef MQTT_USERNAME
     WiFiManagerParameter custom_mqtt_user("user", "MQTT username", username, sizeof(username));
+#endif
+#ifndef MQTT_PASSWORD
     WiFiManagerParameter custom_mqtt_pass("pass", "MQTT password", password, sizeof(password));
+#endif
 #ifdef HOME_ASSISTANT_DISCOVERY
     WiFiManagerParameter custom_mqtt_ha_name("ha_name", "Sensor name for Home Assistant", ha_name, sizeof(ha_name));
 #endif
@@ -498,11 +517,17 @@ void setup()
     wifiManager.setSaveConfigCallback(saveConfigCallback);
 
     //add all your parameters here
+#ifndef MQTT_SERVER
     wifiManager.addParameter(&custom_mqtt_server);
+#endif
     wifiManager.addParameter(&custom_mqtt_port);
     wifiManager.addParameter(&custom_workgroup);
+#ifndef MQTT_USERNAME
     wifiManager.addParameter(&custom_mqtt_user);
+#endif
+#ifndef MQTT_PASSWORD
     wifiManager.addParameter(&custom_mqtt_pass);
+#endif
     wifiManager.addParameter(&custom_temperature_scale);
 #ifdef HOME_ASSISTANT_DISCOVERY
     wifiManager.addParameter(&custom_mqtt_ha_name);
@@ -548,11 +573,17 @@ void setup()
     digitalWrite(pinAlarm, LOW);
 
     //read updated parameters
+#ifndef MQTT_SERVER
     strcpy(mqtt_server, custom_mqtt_server.getValue());
+#endif
     strcpy(mqtt_port, custom_mqtt_port.getValue());
     strcpy(workgroup, custom_workgroup.getValue());
+#ifndef MQTT_USERNAME
     strcpy(username, custom_mqtt_user.getValue());
+#endif
+#ifndef MQTT_PASSWORD
     strcpy(password, custom_mqtt_pass.getValue());
+#endif
     strcpy(temp_scale, custom_temperature_scale.getValue());
 #ifdef HOME_ASSISTANT_DISCOVERY
     strcpy(ha_name, custom_mqtt_ha_name.getValue());
@@ -577,8 +608,14 @@ void setup()
     bmp.begin();
 
     // MQTT
+#ifdef MQTT_SERVER
+    Serial.print("Hardcoded MQTT Server: ");
+    Serial.println(MQTT_SERVER);
+#else
     Serial.print("MQTT Server: ");
     Serial.println(mqtt_server);
+#endif
+
     Serial.print("MQTT Port: ");
     Serial.println(mqtt_port);
     // Print MQTT Username
@@ -646,7 +683,12 @@ void setup()
 #endif
 
     const int mqttPort = atoi(mqtt_port);
+#ifdef MQTT_SERVER
+    mqttClient.setServer(MQTT_SERVER, mqttPort);
+#else
     mqttClient.setServer(mqtt_server, mqttPort);
+#endif
+
     mqttClient.setCallback(mqttCallback);
 
     mqttReconnect();
@@ -916,6 +958,10 @@ void calculateMachineId()
 
 const char *mqtt_username()
 {
+#ifdef MQTT_USERNAME
+    return MQTT_USERNAME;
+#endif
+
     if (strlen(username) == 0)
         return 0;
 
@@ -924,6 +970,10 @@ const char *mqtt_username()
 
 const char *mqtt_password()
 {
+#ifdef MQTT_PASSWORD
+    return MQTT_PASSWORD;
+#endif
+
     if (strlen(password) == 0)
         return 0;
 
