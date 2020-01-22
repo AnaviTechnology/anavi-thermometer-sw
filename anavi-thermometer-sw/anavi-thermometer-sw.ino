@@ -100,6 +100,24 @@
 // while the ANAVI Thermometer is started.
 #define BUTTON_INTERVAL 100
 
+// By default, you can perform a factory reset on the ANAVI
+// Thermometer in a few ways:
+//
+//  - press and hold the button while the ANAVI Thermometer is
+//    connected to a WiFi network
+//
+//  - press and hold the button within 2 seconds of powering up the
+//    ANAVI Thermometer
+//
+// If the ANAVI Thermometer fails to connect to a WiFi network, you
+// will also be able to reconfigure it via its web interface.
+//
+// By defining OTA_RESET you will also be able to issue a factory
+// reset by sending cmnd/$MACHINEID/factory-reset to the device.  This
+// is disabled by default, as it is too easy to unconfigure the device
+// by mistake.
+#undef OTA_FACTORY_RESET
+
 #include <ESP8266WiFi.h>          //https://github.com/esp8266/Arduino
 #include <ESP8266httpUpdate.h>
 
@@ -217,6 +235,10 @@ PubSubClient mqttClient(espClient);
 
 #ifdef OTA_UPGRADES
 char cmnd_update_topic[12 + sizeof(machineId)];
+#endif
+
+#ifdef OTA_FACTORY_RESET
+char cmnd_factory_reset_topic[19 + sizeof(machineId)];
 #endif
 
 char line1_topic[11 + sizeof(machineId)];
@@ -481,6 +503,9 @@ void setup()
     sprintf(cmnd_temp_format, "cmnd/%s/tempformat", machineId);
 #ifdef OTA_UPGRADES
     sprintf(cmnd_update_topic, "cmnd/%s/update", machineId);
+#endif
+#ifdef OTA_FACTORY_RESET
+    sprintf(cmnd_factory_reset_topic, "cmnd/%s/factory-reset", machineId);
 #endif
 
     // The extra parameters to be configured (can be either global or just in the setup)
@@ -858,6 +883,22 @@ void do_ota_upgrade(char *text)
 }
 #endif
 
+#ifdef OTA_FACTORY_RESET
+void do_ota_factory_reset()
+{
+    Serial.println("Factory reset issued...");
+    WiFi.disconnect();
+
+    Serial.println("Restarting...");
+
+    // Clean the file system with configurations
+    SPIFFS.format();
+
+    // Restart the board
+    ESP.restart();
+}
+#endif
+
 void processMessageScale(const char* text)
 {
     StaticJsonDocument<200> data;
@@ -942,6 +983,14 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
     }
 #endif
 
+#ifdef OTA_FACTORY_RESET
+    if (strcmp(topic, cmnd_factory_reset_topic) == 0)
+    {
+        Serial.println("OTA factory reset request seen.\n");
+        do_ota_factory_reset();
+    }
+#endif
+
     publishState();
 }
 
@@ -1004,6 +1053,9 @@ void mqttReconnect()
             mqttClient.subscribe(cmnd_temp_format);
 #ifdef OTA_UPGRADES
             mqttClient.subscribe(cmnd_update_topic);
+#endif
+#ifdef OTA_FACTORY_RESET
+            mqttClient.subscribe(cmnd_factory_reset_topic);
 #endif
             publishState();
             break;
