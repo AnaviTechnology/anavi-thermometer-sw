@@ -241,6 +241,8 @@ char cmnd_update_topic[12 + sizeof(machineId)];
 char cmnd_factory_reset_topic[19 + sizeof(machineId)];
 #endif
 
+char cmnd_restart_topic[13 + sizeof(machineId)];
+
 char line1_topic[11 + sizeof(machineId)];
 char line2_topic[11 + sizeof(machineId)];
 char line3_topic[11 + sizeof(machineId)];
@@ -507,6 +509,7 @@ void setup()
 #ifdef OTA_FACTORY_RESET
     sprintf(cmnd_factory_reset_topic, "cmnd/%s/factory-reset", machineId);
 #endif
+    sprintf(cmnd_restart_topic, "cmnd/%s/restart", machineId);
 
     // The extra parameters to be configured (can be either global or just in the setup)
     // After connecting, parameter.getValue() will get you the configured value
@@ -991,6 +994,12 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
     }
 #endif
 
+    if (strcmp(topic, cmnd_restart_topic) == 0)
+    {
+        Serial.println("OTA restart request seen.\n");
+        ESP.restart();
+    }
+
     publishState();
 }
 
@@ -1057,6 +1066,7 @@ void mqttReconnect()
 #ifdef OTA_FACTORY_RESET
             mqttClient.subscribe(cmnd_factory_reset_topic);
 #endif
+            mqttClient.subscribe(cmnd_restart_topic);
             publishState();
             break;
 
