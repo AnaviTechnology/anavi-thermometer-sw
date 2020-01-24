@@ -118,6 +118,13 @@
 // by mistake.
 #undef OTA_FACTORY_RESET
 
+// Define to PUBLISH_FREE_HEAP publish the amount of free heap space
+// to MQTT, as <workgroup>/<machineid>/free-heap, with a value on
+// this format:
+//
+//     { "bytes": 32109 }
+#define PUBLISH_FREE_HEAP
+
 #include <ESP8266WiFi.h>          //https://github.com/esp8266/Arduino
 #include <ESP8266httpUpdate.h>
 
@@ -1659,6 +1666,10 @@ void loop()
         char chipid[9];
         snprintf(chipid, sizeof(chipid), "%08x", ESP.getChipId());
         publishSensorData("chipid", "chipid", chipid);
+#endif
+
+#ifdef PUBLISH_FREE_HEAP
+        publishSensorData("free-heap", "bytes", ESP.getFreeHeap());
 #endif
     }
 
