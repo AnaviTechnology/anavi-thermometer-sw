@@ -194,6 +194,55 @@ float temperatureCoef = 0.9;
 // Similar, for the DS18B20 sensor.
 float dsTemperatureCoef = 1.0;
 
+// The BMP180 sensor can measure the air pressure.  If the sea-level
+// pressure is known, you can then compute the altitude.  You can tell
+// the ANAVI Thermometer the current sea-level pressure via the
+// cmnd/<machineid>/sea-level-pressure MQTT topic.  The value should
+// be a floating point number (such as "1028.4").  Negative numbers
+// are interpreted as "unknown".
+//
+// If the sea-level pressure is known, the height above sea level (in
+// meters) will be published to the MQTT topic:
+//
+//     <workgroup>/<machineid>/BMPaltitude
+//
+// using the format
+//
+//     { altitude: 72.3 }
+float configured_sea_level_pressure = -1;
+
+// If configured_altitude is set to value below this, it will be
+// treated as "unknown".  We can't use 0, because e.g. the surface of
+// the Dead Sea is more than 400 meters below the sea level (and
+// dropping lower every year).  Man has drilled more than 12 km below
+// the surface at Kola superdeep borehole.  Using a limit of -20000
+// should be low enough.
+#define MIN_ALTITUDE (-20000)
+
+// The BMP180 sensor can measure the air pressure.  If the altitude is
+// known, you can then compute the sea-level pressure.  You can tell
+// the ANAVI Thermometer the current altitude via the
+// cmnd/<machineid>/altitude MQTT topic.  The value should be a
+// floating point number (such as "72.3").  Numbers below -20000 are
+// interpreted as "unknown".  Use a retained MQTT message unless you
+// want to re-publish it every time the thermometer restarts.
+//
+// If the altitude is known, the sea-level pressure (in hPa) will be
+// published to the MQTT topic:
+//
+//     <workgroup>/<machineid>/BMPsea-level-pressure
+//
+// using the format
+//
+//     { pressure: 1028.4 }
+//
+// (Note that you can tell the ANAVI Thermometer both the sea-level
+// pressure and the altitude.  It will then compute both the altitude
+// based on the sea-level pressure, and the sea-level pressure based
+// on the altitude.  This can give you an idea of how accurate these
+// calculations are, but is probably seldom useful.)
+float configured_altitude = MIN_ALTITUDE - 2;
+
 float dhtTemperature = 0;
 float dhtHumidity = 0;
 float dsTemperature = 0;
@@ -242,6 +291,9 @@ char cmnd_factory_reset_topic[19 + sizeof(machineId)];
 #endif
 
 char cmnd_restart_topic[13 + sizeof(machineId)];
+
+char cmnd_slp_topic[5 + 19 + sizeof(machineId)];
+char cmnd_altitude_topic[5 + 9 + sizeof(machineId)];
 
 char line1_topic[11 + sizeof(machineId)];
 char line2_topic[11 + sizeof(machineId)];
@@ -510,6 +562,8 @@ void setup()
     sprintf(cmnd_factory_reset_topic, "cmnd/%s/factory-reset", machineId);
 #endif
     sprintf(cmnd_restart_topic, "cmnd/%s/restart", machineId);
+    sprintf(cmnd_slp_topic, "cmnd/%s/sea-level-pressure", machineId);
+    sprintf(cmnd_altitude_topic, "cmnd/%s/altitude", machineId);
 
     // The extra parameters to be configured (can be either global or just in the setup)
     // After connecting, parameter.getValue() will get you the configured value
@@ -1000,6 +1054,16 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
         ESP.restart();
     }
 
+    if (strcmp(topic, cmnd_slp_topic) == 0)
+    {
+        configured_sea_level_pressure = atof(text);
+    }
+
+    if (strcmp(topic, cmnd_altitude_topic) == 0)
+    {
+        configured_altitude = atof(text);
+    }
+
     publishState();
 }
 
@@ -1067,6 +1131,8 @@ void mqttReconnect()
             mqttClient.subscribe(cmnd_factory_reset_topic);
 #endif
             mqttClient.subscribe(cmnd_restart_topic);
+            mqttClient.subscribe(cmnd_slp_topic);
+            mqttClient.subscribe(cmnd_altitude_topic);
             publishState();
             break;
 
@@ -1214,6 +1280,49 @@ void publishState()
                                "°C",
                                "{{ value_json.temperature }}");
     }
+
+    if (isSensorAvailable(sensorBMP180))
+    {
+        publishSensorDiscovery("sensor",
+                               "bmp180-pressure",
+                               "pressure",
+                               "BMP180 Air Pressure",
+                               "/BMPpressure",
+                               "hPa",
+                               "{{ value_json.BMPpressure }}");
+
+        publishSensorDiscovery("sensor",
+                               "bmp180-temp",
+                               "temperature",
+                               "BMP180 Temperature",
+                               "/BMPtemperature",
+                               homeAssistantTempScale.c_str(),
+                               "{{ value_json.BMPtemperature }}");
+
+        if (configured_sea_level_pressure > 0)
+        {
+            publishSensorDiscovery("sensor",
+                                   "bmp180-altitude",
+                                   0, // No support for "altitude" in
+                                      // Home Assistant, so we claim
+                                      // to be a generic sensor.
+                                   "BMP180 Altitude",
+                                   "/BMPaltitude",
+                                   "m",
+                                   "{{ value_json.altitude }}");
+        }
+
+        if (configured_altitude >= -20000)
+        {
+            publishSensorDiscovery("sensor",
+                                   "bmp180-slp",
+                                   "pressure",
+                                   "BMP180 Sea-Level Pressure",
+                                   "/BMPsea-level-pressure",
+                                   "hPa",
+                                   "{{ value_json.pressure }}");
+        }
+    }
 #endif
 }
 
@@ -1360,18 +1469,30 @@ void handleBMP()
   bmp.getTemperature(&temperature);
   Serial.print("BMP180 Temperature: ");
   Serial.println(formatTemperature(temperature));
-  // For accurate results replace SENSORS_PRESSURE_SEALEVELHPA with the current SLP
-  float seaLevelPressure = SENSORS_PRESSURE_SEALEVELHPA;
-  float altitude;
-  altitude = bmp.pressureToAltitude(seaLevelPressure, event.pressure, temperature);
-  Serial.print("BMP180 Altitude: ");
-  Serial.print(altitude);
-  Serial.println(" m");
 
   // Publish new pressure values through MQTT
   publishSensorData("BMPpressure", "BMPpressure", event.pressure);
   publishSensorData("BMPtemperature", "BMPtemperature", convertTemperature(temperature));
-  publishSensorData("BMPaltitude", "BMPaltitude", altitude);
+
+  if (configured_sea_level_pressure > 0)
+  {
+      float altitude;
+      altitude = bmp.pressureToAltitude(configured_sea_level_pressure, event.pressure, temperature);
+      Serial.print("BMP180 Altitude: ");
+      Serial.print(altitude);
+      Serial.println(" m");
+      publishSensorData("BMPaltitude", "altitude", altitude);
+  }
+
+  if (configured_altitude >= MIN_ALTITUDE)
+  {
+      float slp;
+      slp = bmp.seaLevelForAltitude(configured_altitude, event.pressure, temperature);
+      Serial.print("BMP180 sea-level pressure: ");
+      Serial.print(slp);
+      Serial.println(" hPa");
+      publishSensorData("BMPsea-level-pressure", "pressure", slp);
+  }
 }
 
 void handleSensors()
