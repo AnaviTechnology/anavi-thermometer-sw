@@ -1280,6 +1280,49 @@ void publishState()
                                "°C",
                                "{{ value_json.temperature }}");
     }
+
+    if (isSensorAvailable(sensorBMP180))
+    {
+        publishSensorDiscovery("sensor",
+                               "bmp180-pressure",
+                               "pressure",
+                               "BMP180 Air Pressure",
+                               "/BMPpressure",
+                               "hPa",
+                               "{{ value_json.BMPpressure }}");
+
+        publishSensorDiscovery("sensor",
+                               "bmp180-temp",
+                               "temperature",
+                               "BMP180 Temperature",
+                               "/BMPtemperature",
+                               homeAssistantTempScale.c_str(),
+                               "{{ value_json.BMPtemperature }}");
+
+        if (configured_sea_level_pressure > 0)
+        {
+            publishSensorDiscovery("sensor",
+                                   "bmp180-altitude",
+                                   0, // No support for "altitude" in
+                                      // Home Assistant, so we claim
+                                      // to be a generic sensor.
+                                   "BMP180 Altitude",
+                                   "/BMPaltitude",
+                                   "m",
+                                   "{{ value_json.altitude }}");
+        }
+
+        if (configured_altitude >= -20000)
+        {
+            publishSensorDiscovery("sensor",
+                                   "bmp180-slp",
+                                   "pressure",
+                                   "BMP180 Sea-Level Pressure",
+                                   "/BMPsea-level-pressure",
+                                   "hPa",
+                                   "{{ value_json.pressure }}");
+        }
+    }
 #endif
 }
 
