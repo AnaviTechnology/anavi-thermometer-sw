@@ -258,7 +258,7 @@ float sensorHumidity = 0;
 uint16_t sensorAmbientLight = 0;
 
 //define your default values here, if there are different values in config.json, they are overwritten.
-char mqtt_server[40] = "iot.eclipse.org";
+char mqtt_server[40] = "mqtt.eclipse.org";
 char mqtt_port[6] = "1883";
 char workgroup[32] = "workgroup";
 // MQTT username and password
