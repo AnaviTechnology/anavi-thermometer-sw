@@ -1353,6 +1353,17 @@ void publishState()
                                    "{{ value_json.pressure }}");
         }
     }
+
+    if (isSensorAvailable(sensorBH1750))
+    {
+        publishSensorDiscovery("sensor",
+                              "light",
+                              "illuminance",
+                              "Light",
+                              "/light",
+                              "Lux",
+                              "{{ value_json.light }}");
+    }
 #endif
 }
 
