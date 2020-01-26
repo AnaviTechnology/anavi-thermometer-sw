@@ -331,20 +331,29 @@ void saveConfigCallback ()
     shouldSaveConfig = true;
 }
 
-void drawDisplay(const char *line1, const char *line2 = "", const char *line3 = "")
+void drawDisplay(const char *line1, const char *line2 = "", const char *line3 = "", bool smallSize = false)
 {
     // Write on OLED display
     // Clear the internal memory
     u8g2.clearBuffer();
     // Set appropriate font
-    u8g2.setFont(u8g2_font_ncenR14_tr);
-    u8g2.drawStr(0,14, line1);
-    u8g2.drawStr(0,39, line2);
-    u8g2.drawStr(0,64, line3);
+    if ( true == smallSize)
+    {
+      u8g2.setFont(u8g2_font_ncenR10_tr);
+      u8g2.drawStr(0,14, line1);
+      u8g2.drawStr(0,39, line2);
+      u8g2.drawStr(0,60, line3);
+    }
+    else
+    {
+      u8g2.setFont(u8g2_font_ncenR14_tr);
+      u8g2.drawStr(0,14, line1);
+      u8g2.drawStr(0,39, line2);
+      u8g2.drawStr(0,64, line3);
+    }
     // Transfer internal memory to the display
     u8g2.sendBuffer();
 }
-
 
 void load_calibration()
 {
@@ -438,6 +447,18 @@ void checkDisplay()
     {
         Serial.println(": N/A");
     }
+}
+
+void apWiFiCallback(WiFiManager *myWiFiManager)
+{
+    String configPortalSSID = myWiFiManager->getConfigPortalSSID();
+    // Print information in the serial output
+    Serial.print("Created access point for configuration: ");
+    Serial.println(configPortalSSID);
+    // Show information on the display
+    String apId = configPortalSSID.substring(configPortalSSID.length()-5);
+    String configHelper("AP ID: "+apId);
+    drawDisplay("Thermometer", "Please configure", configHelper.c_str(), true);
 }
 
 void setup()
@@ -642,11 +663,13 @@ void setup()
     drawDisplay("Connecting...", WiFi.SSID().c_str());
 
     //fetches ssid and pass and tries to connect
-    //if it does not connect it starts an access point with the specified name
-    //here  "AutoConnectAP"
+    //if it does not connect it starts an access point
     //and goes into a blocking loop awaiting configuration
-    String ap_ssid = String("ANAVI Thermometer ") + String(machineId);
-    if (!wifiManager.autoConnect(ap_ssid.c_str(), ""))
+    wifiManager.setAPCallback(apWiFiCallback);
+    String apId(machineId);
+    apId = apId.substring(apId.length() - 5);
+    String accessPointName = "ANAVI Thermometer " + apId;
+    if (!wifiManager.autoConnect(accessPointName.c_str(), ""))
     {
         digitalWrite(pinAlarm, LOW);
         Serial.println("failed to connect and hit timeout");
