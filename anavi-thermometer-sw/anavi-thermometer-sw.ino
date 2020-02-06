@@ -153,6 +153,7 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP085_U.h>
 
+#define PRODUCT "ANAVI Thermometer"
 
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP);
@@ -456,7 +457,7 @@ void apWiFiCallback(WiFiManager *myWiFiManager)
     Serial.print("Created access point for configuration: ");
     Serial.println(configPortalSSID);
     // Show information on the display
-    String apId = configPortalSSID.substring(configPortalSSID.length()-5);
+    String apId = configPortalSSID.substring(sizeof(PRODUCT));
     String configHelper("AP ID: "+apId);
     drawDisplay("Thermometer", "Please configure", configHelper.c_str(), true);
 }
@@ -667,8 +668,9 @@ void setup()
     //and goes into a blocking loop awaiting configuration
     wifiManager.setAPCallback(apWiFiCallback);
     String apId(machineId);
-    apId = apId.substring(apId.length() - 5);
-    String accessPointName = "ANAVI Thermometer " + apId;
+    if (apId.length() > 5)
+        apId = apId.substring(apId.length() - 5);
+    String accessPointName = PRODUCT " " + apId;
     if (!wifiManager.autoConnect(accessPointName.c_str(), ""))
     {
         digitalWrite(pinAlarm, LOW);
@@ -1230,7 +1232,7 @@ bool publishSensorDiscovery(const char *component,
 
     json["device"]["identifiers"] = machineId;
     json["device"]["manufacturer"] = "ANAVI Technology";
-    json["device"]["model"] = "ANAVI Thermometer";
+    json["device"]["model"] = PRODUCT;
     json["device"]["name"] = String(ha_name) + " " + name_suffix;
     json["device"]["sw_version"] = ESP.getSketchMD5();
 
