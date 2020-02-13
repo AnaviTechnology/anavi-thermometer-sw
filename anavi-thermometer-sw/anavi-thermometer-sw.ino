@@ -1030,6 +1030,7 @@ void do_ota_upgrade(char *text)
         case HTTP_UPDATE_OK:
             Serial.println("HTTP_UPDATE_OK");
             drawDisplay("OTA OK.", "Rebooting.", "");
+            nice_restart();
             break;
         }
     }
