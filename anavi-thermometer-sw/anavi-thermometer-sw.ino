@@ -462,6 +462,46 @@ void apWiFiCallback(WiFiManager *myWiFiManager)
     drawDisplay("Thermometer", "Please configure", configHelper.c_str(), true);
 }
 
+// If the ESP8266 restarts while the DHT22 is idle, the DHT22 ends up
+// in a state where it no longer responds to requests for reading the
+// temperature.  Exactly why this happens is not known, but perhaps
+// the way the bootloader blinks with the blue LED (which is also
+// connected to GPIO2) violates the DHT22 specification too much.
+//
+// We can work around this issue by starting a measurement immediately
+// prior to the restart.  That way, the DHT22 sensor is busy sending a
+// measurement while the EPS8266 restarts, and since it doesn't listen
+// to its one-wire bus while it sends data to it, it apparently
+// doesn't care about what is on it.  This explanation may not be
+// true, but the fact is that this workaround somehow seems to work.
+void nice_restart()
+{
+    // Ensure any previous measurement has time to finish (which takes
+    // at most 5 ms), and ensure we allow the DHT22 to sit idle for at
+    // least 2 seconds, as it needs to do between measurements.
+    pinMode(DHTPIN, INPUT_PULLUP);
+    delay(2005);
+
+    // Send the "start measurement" pulse, which needs to be 1-10 ms.
+    // We make it 2 ms.
+    pinMode(DHTPIN, OUTPUT);
+    digitalWrite(DHTPIN, LOW);
+    delay(2);
+    pinMode(DHTPIN, INPUT_PULLUP);
+
+    // Wait a short while to give the DHT22 time to start responding.
+    delayMicroseconds(70);
+
+    ESP.restart();
+
+    // The restart function seems to sometimes return; the actual
+    // restart happens a short while later.  Enter an eternal loop
+    // here to avoid doing any more work until the restart actually
+    // happens.
+    while (1)
+        ;
+}
+
 void setup()
 {
     // put your setup code here, to run once:
@@ -677,8 +717,7 @@ void setup()
         Serial.println("failed to connect and hit timeout");
         delay(3000);
         //reset and try again, or maybe put it to deep sleep
-        ESP.restart();
-        delay(5000);
+        nice_restart();
     }
     WiFi.mode(WIFI_STA);
 
@@ -884,7 +923,7 @@ void factoryReset()
             // Clean the file system with configurations
             SPIFFS.format();
             // Restart the board
-            ESP.restart();
+            nice_restart();
         }
         else
         {
@@ -984,7 +1023,7 @@ void do_ota_factory_reset()
     SPIFFS.format();
 
     // Restart the board
-    ESP.restart();
+    nice_restart();
 }
 #endif
 
@@ -1083,7 +1122,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
     if (strcmp(topic, cmnd_restart_topic) == 0)
     {
         Serial.println("OTA restart request seen.\n");
-        ESP.restart();
+        nice_restart();
     }
 
     if (strcmp(topic, cmnd_slp_topic) == 0)
