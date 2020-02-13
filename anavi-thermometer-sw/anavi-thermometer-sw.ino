@@ -1329,7 +1329,7 @@ void publishState()
                            "Humidity",
                            "/air/humidity",
                            "%",
-                           "{{ value_json.humidity | round(0) }}");
+                           "{{ value_json.humidity }}");
 
     if (haveButton)
     {
