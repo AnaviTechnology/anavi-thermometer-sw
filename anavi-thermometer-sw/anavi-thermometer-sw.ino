@@ -257,6 +257,9 @@ float dsTemperature = 0;
 float sensorTemperature = 0;
 float sensorHumidity = 0;
 uint16_t sensorAmbientLight = 0;
+float sensorBaPressure = 0;
+enum i2cSensorDetected { NONE = 0, BMP = 1, BH = 2, BOTH = 3 };
+i2cSensorDetected i2cSensorToShow = NONE;
 
 //define your default values here, if there are different values in config.json, they are overwritten.
 char mqtt_server[40] = "mqtt.eclipse.org";
@@ -1578,14 +1581,16 @@ void handleBMP()
   Serial.print("BMP180 Temperature: ");
   Serial.println(formatTemperature(temperature));
 
+  sensorBaPressure = event.pressure;
+
   // Publish new pressure values through MQTT
-  publishSensorData("BMPpressure", "BMPpressure", event.pressure);
+  publishSensorData("BMPpressure", "BMPpressure", sensorBaPressure);
   publishSensorData("BMPtemperature", "BMPtemperature", convertTemperature(temperature));
 
   if (configured_sea_level_pressure > 0)
   {
       float altitude;
-      altitude = bmp.pressureToAltitude(configured_sea_level_pressure, event.pressure, temperature);
+      altitude = bmp.pressureToAltitude(configured_sea_level_pressure, sensorBaPressure, temperature);
       Serial.print("BMP180 Altitude: ");
       Serial.print(altitude);
       Serial.println(" m");
@@ -1605,17 +1610,20 @@ void handleBMP()
 
 void handleSensors()
 {
+    i2cSensorToShow = NONE;
     if (isSensorAvailable(sensorHTU21D))
     {
         handleHTU21D();
     }
-    if (isSensorAvailable(sensorBH1750))
-    {
-        handleBH1750();
-    }
     if (isSensorAvailable(sensorBMP180))
     {
-      handleBMP();
+        i2cSensorToShow = BMP;
+        handleBMP();
+    }
+    if (isSensorAvailable(sensorBH1750))
+    {
+        i2cSensorToShow = (BMP == i2cSensorToShow) ? BOTH : BH;
+        handleBH1750();
     }
 }
 
@@ -1707,6 +1715,31 @@ void publish_uptime()
     mqttClient.publish(topic, payload);
 }
 
+void displaySensorsDataI2C()
+{
+    if (BMP == i2cSensorToShow)
+    {
+        sensor_line3 = "Baro " + String(round(sensorBaPressure), 0) + "hPa";
+    }
+    else if (BH == i2cSensorToShow)
+    {
+        sensor_line3 = "Light " + String(sensorAmbientLight) + "lx";
+    }
+    else if (BOTH == i2cSensorToShow)
+    {
+        static int sensorSelect = 0;
+        switch (++sensorSelect%2)
+        {
+            case 0:
+                sensor_line3 = "Light " + String(sensorAmbientLight) + "lx";
+            break;
+            default:
+                sensor_line3 = "Baro " + String(round(sensorBaPressure), 0) + "hPa";
+            break;
+        }
+    }
+}
+
 void loop()
 {
     uptime_loop();
@@ -1796,6 +1829,10 @@ void loop()
             publishSensorData("water/temperature", "temperature", convertTemperature(wtemp));
             sensor_line3 = "Water " + formatTemperature(dsTemperature);
             Serial.println(sensor_line3);
+        }
+        else if (NONE != i2cSensorToShow)
+        {
+            displaySensorsDataI2C();
         }
         else
         {
