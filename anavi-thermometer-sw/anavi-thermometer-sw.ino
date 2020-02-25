@@ -1242,7 +1242,7 @@ void setup()
     wifiManager.setTimeout(300);
 
     digitalWrite(pinAlarm, HIGH);
-    drawDisplay("Connecting...", WiFi.SSID().c_str());
+    drawDisplay("Connecting...", WiFi.SSID().c_str(), "", true);
 
     //fetches ssid and pass and tries to connect
     //if it does not connect it starts an access point
@@ -1294,7 +1294,8 @@ void setup()
 
     Serial.println("local ip");
     Serial.println(WiFi.localIP());
-    drawDisplay("Connected!", "Local IP:", WiFi.localIP().toString().c_str());
+    drawDisplay("Connected!", "Local IP:", WiFi.localIP().toString().c_str(),
+                true);
     delay(2000);
 
     // Sensors
