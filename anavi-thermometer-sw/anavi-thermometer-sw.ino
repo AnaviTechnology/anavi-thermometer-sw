@@ -73,6 +73,102 @@
 // This hack will likely increase the power consumption slightly.
 // #define ESP12_BLUE_LED_ALWAYS_ON
 
+// When HOME_ASSISTANT_DISCOVERY is defined, the MQTT Discovery
+// messages sent by the ANAVI Thermometer will include an
+// "availability_topic" setting.  This refers to a topic where the
+// ANAVI Thermometer will publish an "online" message to indicate that
+// the sensor is active, and an "offline" message if the ANAVI
+// Thermometer detects that the sensor becomes unavailable.  It will
+// also set up a "Last Will and Testament" (also known as "will" or
+// "LWT") for the MQTT connection, so that the MQTT broker
+// automatically sets the status to "offline" if it loses the
+// connection with the ANAVI Thermometer.
+//
+// The MQTT protocol only supports a single will per MQTT connection,
+// but the ANAVI Thermometer can have multiple sensors.  We would
+// ideally like to have one will per sensor.  That would allow Home
+// Assistant to automatically detect that all sensor readings are
+// available if you turn off the ANAVI Thermometer.
+//
+// These status topics are named
+// "<workgroup>/<machineid>/status/<sensor>", where <sensor> can be
+// "dht22" for the built-in DHT22 temperature and humidity sensor,
+// "esp8266" for the ANAVI Thermometer itself, et c.  See the
+// mqtt_specs table for a full list.  Status topics will only be
+// published for sensors that are detected.
+//
+// You can select one of three available methods to handle this.  Each
+// method has its drawbacks.
+//
+// The default method uses a single MQTT connection but one
+// availability topic per sensor (plus one for the esp8266 board
+// itself).  The drawback of this method is that only the esp8266
+// status topic will be set to offline if the connection to the ANAVI
+// Thermometer is lost.  You can work around this by having something
+// else that subscribes to the esp8266 status topic and publishes
+// "offline" messages to all other status topics whenever it receives
+// an "offline" message.  Is is possible to set up this in Home
+// Assistant as a automation similar to this (assuming the <machineid>
+// is "deadbeef"):
+//
+//     - id: '4711'
+//       alias: Track ANAVI Thermometer disconnect in dht22status
+//       description: ''
+//       trigger:
+//       - topic: workgroup/deadbeef/status/esp8266
+//         payload: offline
+//         platform: mqtt
+//       condition: []
+//       action:
+//       - service: mqtt.publish
+//         data:
+//           topic: workgroup/deadbeef/status/dht22
+//           payload: offline
+//           qos: 0
+//           retain: true
+//       - service: mqtt.publish
+//         data:
+//           topic: workgroup/deadbeef/status/ds18b20
+//           payload: offline
+//           qos: 0
+//           retain: true
+//
+// The above example assumes that the "deadbeef" ANAVI Thermometer has
+// a connected DS18B20 waterproof temperature sensor and a DHT22
+// sensor.  You can add more actions as needed.
+//
+// By commenting out the "#define USE_MULTIPLE_STATUS_TOPICS" line
+// below, you can instead select a mode where the ANAVI Thermometer
+// only uses a single status topic, named
+// "<workgroup>/<machineid>/status/esp8266".  The main drawback of
+// this is that the ANAVI Thermometer can no longer inform you of
+// individual sensors that are offline, but it may be a decent
+// compromise if you don't want to (or can't) set up an automation as
+// above or use USE_MULTIPLE_MQTT.
+//
+// The third method is documented below, above USE_MULTIPLE_MQTT.
+#define USE_MULTIPLE_STATUS_TOPICS
+
+// The ANAVI Thermometer can be configured to opens several MQTT
+// connections to the MQTT broker, so that it can reliably set up LWTs
+// for all the status topics.  (This is only relevant if
+// USE_MULTIPLE_STATUS_TOPICS is defined).  See mqtt_specs below for a
+// full list of connections it may potentially open.  If you don't
+// connect any external sensors, it will only open two connections
+// (for the DHT22 and the board itself).  Each new sensor you add will
+// typically add one more MQTT connection.
+//
+// These MQTT connections use a small amount of heap memory on the
+// ANAVI Thermometer, and they also cause some additional network load
+// and load on the MQTT broker, so they are disabled by default.  By
+// uncommenting the following line, you can enable multiple MQTT
+// connections.
+// #define USE_MULTIPLE_MQTT
+
+#if defined(USE_MULTIPLE_MQTT) && !defined(USE_MULTIPLE_STATUS_TOPICS)
+#  error USE_MULTIPLE_MQTT without USE_MULTIPLE_STATUS_TOPICS is not supported
+#endif
+
 // In the ANAVI Thermometer, GPIO12 is designed to be connected to the
 // external DS18B20 waterproof temperature sensor using a 1-Wire bus.
 // If you don't connect any 1-Wire sensor, you can instead use that
@@ -290,8 +386,249 @@ char machineId[32+1] = "";
 bool shouldSaveConfig = false;
 
 // MQTT
-WiFiClient espClient;
-PubSubClient mqttClient(espClient);
+const char *mqtt_username();
+const char *mqtt_password();
+
+enum MQTTName {
+    MQTT_ESP8266,
+    MQTT_DHT22,
+    MQTT_DS18B20,
+    MQTT_BMP180,
+    MQTT_BH1750,
+    MQTT_HTU21D,
+    MQTT_APDS9960,
+    MQTT_BUTTON,
+#ifdef USE_MULTIPLE_MQTT
+    MQTT_LAST,
+#else
+    MQTT_LAST_STATUS,
+#  define MQTT_LAST 1
+#endif
+};
+
+class MQTTConnection;
+MQTTConnection *mqtt(MQTTName name);
+
+#ifndef USE_MULTIPLE_STATUS_TOPICS
+void call_mqtt_connect_cbs(MQTTConnection *conn);
+#endif
+
+struct MQTTSpec {
+    MQTTName name;
+    const char *topic;
+    void (*connect_cb)(MQTTConnection *);
+    bool ever_online;  // Not used in USE_MULTIPLE_STATUS_TOPICS mode.
+};
+
+class MQTTStatus
+{
+public:
+    String availability_topic;
+    MQTTStatus *status_list;
+    MQTTConnection *conn;
+
+    MQTTStatus();
+    void set_spec(const MQTTSpec *spec);
+    void online(bool board = false);
+    void offline();
+    const char *topic;
+    void (*connect_cb)(MQTTConnection *);
+    void publish_online(bool force_update);
+
+protected:
+    bool is_online;
+    bool last_online;
+};
+
+class MQTTConnection
+{
+public:
+    WiFiClient espClient;
+    PubSubClient mqttClient;
+
+    bool requested;
+
+    MQTTConnection();
+    void set_spec(const MQTTSpec *spec);
+    void connect();
+    void reconnect();
+    MQTTStatus *status_list;
+protected:
+    String client_id;
+};
+
+MQTTStatus::MQTTStatus()
+    : status_list(0), topic(0), connect_cb(0),
+      is_online(false), last_online(false)
+{
+}
+
+void MQTTStatus::set_spec(const MQTTSpec *spec)
+{
+    topic = spec->topic;
+    connect_cb = spec->connect_cb;
+    availability_topic = String(workgroup) + "/" + machineId + "/"
+        + "status" + "/" + topic;
+}
+
+void MQTTStatus::online(bool board)
+{
+#ifndef USE_MULTIPLE_STATUS_TOPICS
+    // If we use a single MQTT status topic, all the status indicators
+    // except for the board itself (MQTT_ESP8266) are disabled.  For
+    // simplicity, the online() notification for MQTT_ESP8266 also
+    // specifies the board argument.
+
+    if (!board)
+        return;
+#endif
+
+#ifndef USE_MULTIPLE_MQTT
+    if (!conn)
+    {
+        conn = mqtt(MQTT_ESP8266);
+
+        // Insert this as the second element on the status_list.  The
+        // first element must always be the status of the ESP8266
+        // itself.
+        status_list = conn->status_list->status_list;
+        conn->status_list->status_list = this;
+        (*connect_cb)(conn);
+    }
+#endif
+
+    is_online = true;
+
+    if (!conn->requested)
+        conn->connect();
+
+    publish_online(false);
+}
+
+void MQTTStatus::offline()
+{
+#ifdef USE_MULTIPLE_STATUS_TOPICS
+
+    is_online = false;
+
+#ifndef USE_MULTIPLE_MQTT
+    if (!conn)
+        return;
+#endif
+
+    if (conn->requested)
+        publish_online(false);
+
+# else
+
+    // If we use a single MQTT status topic, we never publish offline
+    // messages.  The offline message is only sent as a result of the
+    // MQTT will.  So we don't need to do anything here.
+
+#endif
+}
+
+void MQTTStatus::publish_online(bool force_update)
+{
+    if (is_online != last_online || force_update)
+    {
+        conn->mqttClient.publish(availability_topic.c_str(),
+                                 is_online ? "online" : "offline", true);
+        last_online = is_online;
+    }
+}
+
+MQTTConnection::MQTTConnection()
+    : espClient(), mqttClient(espClient), requested(false), status_list(0)
+{
+}
+
+void MQTTConnection::set_spec(const MQTTSpec *spec)
+{
+    client_id = String("anavi-thermometer-") + machineId + "-" + spec->topic;
+}
+
+void MQTTConnection::connect()
+{
+    requested = true;
+    reconnect();
+}
+
+void MQTTConnection::reconnect()
+{
+    if (!requested || mqttClient.connected())
+        return;
+
+    Serial.print("MQTT ");
+    Serial.print(status_list->topic);
+    Serial.print(" ");
+
+    if (mqttClient.connect(client_id.c_str(),
+                           mqtt_username(), mqtt_password(),
+                           status_list->availability_topic.c_str(),
+                           0, 1, "offline"))
+    {
+        Serial.println("connection established.");
+
+#if defined(USE_MULTIPLE_MQTT)
+        (*status_list->connect_cb)(this);
+        status_list->publish_online(true);
+#elif defined(USE_MULTIPLE_STATUS_TOPICS)
+        MQTTStatus *status = status_list;
+        while (status != NULL)
+        {
+            (*status->connect_cb)(this);
+            status->publish_online(true);
+            status = status->status_list;
+        }
+#else
+        call_mqtt_connect_cbs(this);
+        status_list->publish_online(true);
+#endif
+    }
+    else
+    {
+        Serial.print("failed, rc=");
+        Serial.println(mqttClient.state());
+    }
+}
+
+MQTTConnection mqtt_connections[MQTT_LAST];
+
+#if defined(USE_MULTIPLE_MQTT) == defined(USE_MULTIPLE_STATUS_TOPICS)
+MQTTStatus mqtt_statuses[MQTT_LAST];
+#else
+MQTTStatus mqtt_statuses[MQTT_LAST_STATUS];
+#endif
+
+#ifdef USE_MULTIPLE_MQTT
+MQTTConnection *mqtt(MQTTName name)
+{
+    return &mqtt_connections[name];
+}
+#else
+MQTTConnection *mqtt(MQTTName name)
+{
+    return &mqtt_connections[0];
+}
+#endif
+
+PubSubClient *mqtt_client(MQTTName name)
+{
+    return &mqtt(name)->mqttClient;
+}
+
+#ifdef USE_MULTIPLE_STATUS_TOPICS
+MQTTStatus *mqtt_status(MQTTName name)
+{
+    return &mqtt_statuses[name];
+}
+#else
+MQTTStatus *mqtt_status(MQTTName name)
+{
+    return &mqtt_statuses[0];
+}
+#endif
 
 #ifdef OTA_UPGRADES
 char cmnd_update_topic[12 + sizeof(machineId)];
@@ -345,6 +682,162 @@ struct Uptime
 };
 
 struct Uptime uptime;
+
+void mqtt_esp8266_connected(MQTTConnection *c)
+{
+    c->mqttClient.subscribe(line1_topic);
+    c->mqttClient.subscribe(line2_topic);
+    c->mqttClient.subscribe(line3_topic);
+#ifdef OTA_UPGRADES
+    c->mqttClient.subscribe(cmnd_update_topic);
+#endif
+#ifdef OTA_FACTORY_RESET
+    c->mqttClient.subscribe(cmnd_factory_reset_topic);
+#endif
+    c->mqttClient.subscribe(cmnd_restart_topic);
+    c->mqttClient.subscribe(cmnd_temp_format);
+    publishState();
+}
+
+void mqtt_dht22_connected(MQTTConnection *c)
+{
+    c->mqttClient.subscribe(cmnd_temp_coefficient_topic);
+
+#ifdef HOME_ASSISTANT_DISCOVERY
+
+    String homeAssistantTempScale = (true == configTempCelsius) ? "°C" : "°F";
+    publishSensorDiscovery("sensor",
+                           "temp",
+                           "temperature",
+                           "Temperature",
+                           "/air/temperature",
+                           homeAssistantTempScale.c_str(),
+                           "{{ value_json.temperature | round(1) }}",
+                           MQTT_DHT22);
+
+    publishSensorDiscovery("sensor",
+                           "humidity",
+                           "humidity",
+                           "Humidity",
+                           "/air/humidity",
+                           "%",
+                           "{{ value_json.humidity }}",
+                           MQTT_DHT22);
+#endif
+}
+
+void mqtt_ds18b20_connected(MQTTConnection *c)
+{
+    c->mqttClient.subscribe(cmnd_ds_temp_coefficient_topic);
+
+#ifdef HOME_ASSISTANT_DISCOVERY
+
+    publishSensorDiscovery("sensor",
+                           "watertemp",
+                           "temperature",
+                           "Water Temp",
+                           "/water/temperature",
+                           "°C",
+                           "{{ value_json.temperature }}",
+                           MQTT_DS18B20);
+#endif
+}
+
+void mqtt_bmp180_connected(MQTTConnection *c)
+{
+    c->mqttClient.subscribe(cmnd_slp_topic);
+    c->mqttClient.subscribe(cmnd_altitude_topic);
+
+#ifdef HOME_ASSISTANT_DISCOVERY
+
+    String homeAssistantTempScale = (true == configTempCelsius) ? "°C" : "°F";
+
+    publishSensorDiscovery("sensor",
+                           "bmp180-pressure",
+                           "pressure",
+                           "BMP180 Air Pressure",
+                           "/BMPpressure",
+                           "hPa",
+                           "{{ value_json.BMPpressure }}",
+                           MQTT_BMP180);
+
+    publishSensorDiscovery("sensor",
+                           "bmp180-temp",
+                           "temperature",
+                           "BMP180 Temperature",
+                           "/BMPtemperature",
+                           homeAssistantTempScale.c_str(),
+                           "{{ value_json.BMPtemperature }}",
+                           MQTT_BMP180);
+
+#endif
+
+}
+
+void mqtt_bh1750_connected(MQTTConnection *c)
+{
+#ifdef HOME_ASSISTANT_DISCOVERY
+
+    publishSensorDiscovery("sensor",
+                           "light",
+                           "illuminance",
+                           "Light",
+                           "/light",
+                           "Lux",
+                           "{{ value_json.light }}",
+                           MQTT_BH1750);
+
+#endif
+}
+
+void mqtt_htu21d_connected(MQTTConnection *c)
+{
+    // FIXME: Add SensorDiscovery for this sensor!
+}
+
+void mqtt_apds9960_connected(MQTTConnection *c)
+{
+    // FIXME: Add SensorDiscovery for this sensor!
+}
+
+void mqtt_button_connected(MQTTConnection *c)
+{
+#ifdef HOME_ASSISTANT_DISCOVERY
+
+    publishSensorDiscovery("binary_sensor",
+                           "button",
+                           0,
+                           "Button 1",
+                           "/button/1",
+                           0,
+                           "{{ value_json.pressed }}",
+                           MQTT_BUTTON);
+#endif
+}
+
+// The order must match the enum MQTTName.
+struct MQTTSpec mqtt_specs[] = {
+    {MQTT_ESP8266,  "esp8266",  mqtt_esp8266_connected,  false},
+    {MQTT_DHT22,    "dht22",    mqtt_dht22_connected,    false},
+    {MQTT_DS18B20,  "ds18b20",  mqtt_ds18b20_connected,  false},
+    {MQTT_BMP180,   "bmp180",   mqtt_bmp180_connected,   false},
+    {MQTT_BH1750,   "bh1750",   mqtt_bh1750_connected,   false},
+    {MQTT_HTU21D,   "htu21d",   mqtt_htu21d_connected,   false},
+    {MQTT_APDS9960, "apds9960", mqtt_apds9960_connected, false},
+    {MQTT_BUTTON,   "button",   mqtt_button_connected,   false},
+    {MQTT_ESP8266, 0, 0, false}, // Sentinel used by call_mqtt_connect_cbs()
+};
+
+#ifndef USE_MULTIPLE_STATUS_TOPICS
+void call_mqtt_connect_cbs(MQTTConnection *conn)
+{
+    for (MQTTSpec *spec = mqtt_specs; spec->topic != 0; spec++)
+    {
+        if (spec->ever_online)
+            (*spec->connect_cb)(conn);
+    }
+}
+#endif
 
 //callback notifying us of the need to save config
 void saveConfigCallback ()
@@ -523,6 +1016,20 @@ void nice_restart()
         ;
 }
 
+void mqtt_online(MQTTName name, bool board = false)
+{
+    mqtt_status(name)->online(board);
+
+#ifndef USE_MULTIPLE_STATUS_TOPICS
+    MQTTSpec *spec = &mqtt_specs[name];
+    if (!spec->ever_online)
+    {
+        (*spec->connect_cb)(mqtt(name));
+        spec->ever_online = true;
+    }
+#endif
+}
+
 void setup()
 {
     uptime.d = 0;
@@ -537,6 +1044,14 @@ void setup()
     need_redraw = true;
     Serial.begin(115200);
     Serial.println();
+
+#if defined(USE_MULTIPLE_MQTT)
+    Serial.println("MQTT: N+N: Using multiple connections");
+#elif defined(USE_MULTIPLE_STATUS_TOPICS)
+    Serial.println("MQTT: 1+N: Using single connection, multiple status topics");
+#else
+    Serial.println("MQTT: 1+1: Using single connection, single status topic");
+#endif
 
     Wire.begin();
     checkDisplay();
@@ -861,16 +1376,9 @@ void setup()
 
 #endif
 
-    const int mqttPort = atoi(mqtt_port);
-#ifdef MQTT_SERVER
-    mqttClient.setServer(MQTT_SERVER, mqttPort);
-#else
-    mqttClient.setServer(mqtt_server, mqttPort);
-#endif
+    setup_mqtt(mqtt_server, mqtt_port);
 
-    mqttClient.setCallback(mqttCallback);
-
-    mqttReconnect();
+    mqtt_online(MQTT_ESP8266, true);
 
     Serial.println("");
     Serial.println("-----");
@@ -880,6 +1388,42 @@ void setup()
     Serial.println("");
 
     setupADPS9960();
+}
+
+void setup_mqtt(const char *mqtt_server, const char *mqtt_port)
+{
+    const int mqttPort = atoi(mqtt_port);
+
+    for (int n = 0; n < MQTT_LAST; n++)
+    {
+        if (mqtt_specs[n].name != n)
+        {
+            Serial.print("FATAL: Bad MQTT spec ");
+            Serial.print(n);
+            Serial.println(".");
+            nice_restart();
+        }
+
+        mqtt_connections[n].set_spec(&mqtt_specs[n]);
+        mqtt_statuses[n].set_spec(&mqtt_specs[n]);
+        mqtt_connections[n].mqttClient.setCallback(mqttCallback);
+        mqtt_connections[n].status_list = &mqtt_statuses[n];
+        mqtt_statuses[n].conn = &mqtt_connections[n];
+
+#ifdef MQTT_SERVER
+        mqtt_connections[n].mqttClient.setServer(MQTT_SERVER, mqttPort);
+#else
+        mqtt_connections[n].mqttClient.setServer(mqtt_server, mqttPort);
+#endif
+    }
+
+#if defined(USE_MULTIPLE_STATUS_TOPICS) && !defined(USE_MULTIPLE_MQTT)
+    for (int n = 1; mqtt_specs[n].topic != 0; n++)
+    {
+        mqtt_statuses[n].set_spec(&mqtt_specs[n]);
+        mqtt_statuses[n].conn = 0;
+    }
+#endif
 }
 
 void setupADPS9960()
@@ -1204,48 +1748,8 @@ const char *mqtt_password()
 
 void mqttReconnect()
 {
-    char clientId[18 + sizeof(machineId)];
-    snprintf(clientId, sizeof(clientId), "anavi-thermometer-%s", machineId);
-
-    // Loop until we're reconnected
-    for (int attempt = 0; attempt < 3; ++attempt)
-    {
-        Serial.print("Attempting MQTT connection...");
-        // Attempt to connect
-        if (true == mqttClient.connect(clientId,
-                                       mqtt_username(), mqtt_password()))
-        {
-            Serial.println("connected");
-
-            // Subscribe to MQTT topics
-            mqttClient.subscribe(line1_topic);
-            mqttClient.subscribe(line2_topic);
-            mqttClient.subscribe(line3_topic);
-            mqttClient.subscribe(cmnd_temp_coefficient_topic);
-            mqttClient.subscribe(cmnd_ds_temp_coefficient_topic);
-            mqttClient.subscribe(cmnd_temp_format);
-#ifdef OTA_UPGRADES
-            mqttClient.subscribe(cmnd_update_topic);
-#endif
-#ifdef OTA_FACTORY_RESET
-            mqttClient.subscribe(cmnd_factory_reset_topic);
-#endif
-            mqttClient.subscribe(cmnd_restart_topic);
-            mqttClient.subscribe(cmnd_slp_topic);
-            mqttClient.subscribe(cmnd_altitude_topic);
-            publishState();
-            break;
-
-        }
-        else
-        {
-            Serial.print("failed, rc=");
-            Serial.print(mqttClient.state());
-            Serial.println(" try again in 5 seconds");
-            // Wait 5 seconds before retrying
-            delay(5000);
-        }
-    }
+    for (int i = 0; i < MQTT_LAST; i++)
+        mqtt_connections[i].reconnect();
 }
 
 #ifdef HOME_ASSISTANT_DISCOVERY
@@ -1281,7 +1785,8 @@ bool publishSensorDiscovery(const char *component,
                             const char *name_suffix,
                             const char *state_topic,
                             const char *unit,
-                            const char *value_template)
+                            const char *value_template,
+                            MQTTName mqtt_name)
 {
     static char topic[48 + sizeof(machineId)];
 
@@ -1297,6 +1802,7 @@ bool publishSensorDiscovery(const char *component,
     if (unit)
         json["unit_of_measurement"] = unit;
     json["value_template"] = value_template;
+    json["availability_topic"] = mqtt_status(mqtt_name)->availability_topic;
 
     json["device"]["identifiers"] = machineId;
     json["device"]["manufacturer"] = "ANAVI Technology";
@@ -1312,19 +1818,19 @@ bool publishSensorDiscovery(const char *component,
     Serial.println(topic);
 
     int payload_len = measureJson(json);
-    if (!mqttClient.beginPublish(topic, payload_len, true))
+    if (!mqtt_client(mqtt_name)->beginPublish(topic, payload_len, true))
     {
         Serial.println("beginPublish failed!\n");
         return false;
     }
 
-    if (serializeJson(json, mqttClient) != payload_len)
+    if (serializeJson(json, *mqtt_client(mqtt_name)) != payload_len)
     {
         Serial.println("writing payload: wrong size!\n");
         return false;
     }
 
-    if (!mqttClient.endPublish())
+    if (!mqtt_client(mqtt_name)->endPublish())
     {
         Serial.println("endPublish failed!\n");
         return false;
@@ -1338,67 +1844,16 @@ void publishState()
 {
     static char payload[80];
     snprintf(payload, sizeof(payload), "%f", temperatureCoef);
-    mqttClient.publish(stat_temp_coefficient_topic, payload, true);
+    mqtt_client(MQTT_DHT22)->publish(stat_temp_coefficient_topic,
+                                     payload, true);
     snprintf(payload, sizeof(payload), "%f", dsTemperatureCoef);
-    mqttClient.publish(stat_ds_temp_coefficient_topic, payload, true);
+    mqtt_client(MQTT_DS18B20)->publish(stat_ds_temp_coefficient_topic,
+                                       payload, true);
 
 #ifdef HOME_ASSISTANT_DISCOVERY
-    String homeAssistantTempScale = (true == configTempCelsius) ? "°C" : "°F";
-    publishSensorDiscovery("sensor",
-                           "temp",
-                           "temperature",
-                           "Temperature",
-                           "/air/temperature",
-                           homeAssistantTempScale.c_str(),
-                           "{{ value_json.temperature | round(1) }}");
-
-    publishSensorDiscovery("sensor",
-                           "humidity",
-                           "humidity",
-                           "Humidity",
-                           "/air/humidity",
-                           "%",
-                           "{{ value_json.humidity }}");
-
-    if (haveButton)
-    {
-        publishSensorDiscovery("binary_sensor",
-                               "button",
-                               0,
-                               "Button 1",
-                               "/button/1",
-                               0,
-                               "{{ value_json.pressed }}");
-    }
-    else if (0 < sensors.getDeviceCount())
-    {
-        publishSensorDiscovery("sensor",
-                               "watertemp",
-                               "temperature",
-                               "Water Temp",
-                               "/water/temperature",
-                               "°C",
-                               "{{ value_json.temperature }}");
-    }
 
     if (isSensorAvailable(sensorBMP180))
     {
-        publishSensorDiscovery("sensor",
-                               "bmp180-pressure",
-                               "pressure",
-                               "BMP180 Air Pressure",
-                               "/BMPpressure",
-                               "hPa",
-                               "{{ value_json.BMPpressure }}");
-
-        publishSensorDiscovery("sensor",
-                               "bmp180-temp",
-                               "temperature",
-                               "BMP180 Temperature",
-                               "/BMPtemperature",
-                               homeAssistantTempScale.c_str(),
-                               "{{ value_json.BMPtemperature }}");
-
         if (configured_sea_level_pressure > 0)
         {
             publishSensorDiscovery("sensor",
@@ -1409,7 +1864,8 @@ void publishState()
                                    "BMP180 Altitude",
                                    "/BMPaltitude",
                                    "m",
-                                   "{{ value_json.altitude }}");
+                                   "{{ value_json.altitude }}",
+                                   MQTT_BMP180);
         }
 
         if (configured_altitude >= -20000)
@@ -1420,24 +1876,16 @@ void publishState()
                                    "BMP180 Sea-Level Pressure",
                                    "/BMPsea-level-pressure",
                                    "hPa",
-                                   "{{ value_json.pressure }}");
+                                   "{{ value_json.pressure }}",
+                                   MQTT_BMP180);
         }
     }
 
-    if (isSensorAvailable(sensorBH1750))
-    {
-        publishSensorDiscovery("sensor",
-                              "light",
-                              "illuminance",
-                              "Light",
-                              "/light",
-                              "Lux",
-                              "{{ value_json.light }}");
-    }
 #endif
 }
 
-void publishSensorData(const char* subTopic, const char* key, const float value)
+void publishSensorData(MQTTName mqtt_name, const char* subTopic,
+                       const char* key, const float value)
 {
     StaticJsonDocument<100> json;
     json[key] = value;
@@ -1445,10 +1893,11 @@ void publishSensorData(const char* subTopic, const char* key, const float value)
     serializeJson(json, payload);
     char topic[200];
     sprintf(topic,"%s/%s/%s", workgroup, machineId, subTopic);
-    mqttClient.publish(topic, payload, true);
+    mqtt_client(mqtt_name)->publish(topic, payload, true);
 }
 
-void publishSensorData(const char* subTopic, const char* key, const String& value)
+void publishSensorData(MQTTName mqtt_name, const char* subTopic,
+                       const char* key, const String& value)
 {
     StaticJsonDocument<100> json;
     json[key] = value;
@@ -1456,7 +1905,7 @@ void publishSensorData(const char* subTopic, const char* key, const String& valu
     serializeJson(json, payload);
     char topic[200];
     sprintf(topic,"%s/%s/%s", workgroup, machineId, subTopic);
-    mqttClient.publish(topic, payload, true);
+    mqtt_client(mqtt_name)->publish(topic, payload, true);
 }
 
 bool isSensorAvailable(int sensorAddress)
@@ -1468,6 +1917,8 @@ bool isSensorAvailable(int sensorAddress)
 
 void handleHTU21D()
 {
+    mqtt_online(MQTT_HTU21D);
+
     // Check if temperature has changed
     const float tempTemperature = htu.readTemperature();
     if (1 <= abs(tempTemperature - sensorTemperature))
@@ -1478,7 +1929,8 @@ void handleHTU21D()
         Serial.println(formatTemperature(sensorTemperature));
 
         // Publish new temperature value through MQTT
-        publishSensorData("temperature", "temperature", convertTemperature(sensorTemperature));
+        publishSensorData(MQTT_HTU21D, "temperature", "temperature",
+                          convertTemperature(sensorTemperature));
     }
 
     // Check if humidity has changed
@@ -1492,7 +1944,7 @@ void handleHTU21D()
         Serial.println("%");
 
         // Publish new humidity value through MQTT
-        publishSensorData("humidity", "humidity", sensorHumidity);
+        publishSensorData(MQTT_HTU21D, "humidity", "humidity", sensorHumidity);
     }
 }
 
@@ -1505,6 +1957,8 @@ void sensorWriteData(int i2cAddress, uint8_t data)
 
 void handleBH1750()
 {
+    mqtt_online(MQTT_BH1750);
+
     //Wire.begin();
     // Power on sensor
     sensorWriteData(sensorBH1750, 0x01);
@@ -1529,12 +1983,14 @@ void handleBH1750()
         Serial.println("Lux");
 
         // Publish new brightness value through MQTT
-        publishSensorData("light", "light", sensorAmbientLight);
+        publishSensorData(MQTT_BH1750, "light", "light", sensorAmbientLight);
     }
 }
 
 void detectGesture()
 {
+    mqtt_online(MQTT_APDS9960);
+
     //read a gesture from the device
     const uint8_t gestureCode = apds.readGesture();
     // Skip if gesture has not been detected
@@ -1561,7 +2017,7 @@ void detectGesture()
     Serial.print("Gesture: ");
     Serial.println(gesture);
     // Publish the detected gesture through MQTT
-    publishSensorData("gesture", "gesture", gesture);
+    publishSensorData(MQTT_APDS9960, "gesture", "gesture", gesture);
 }
 
 void handleBMP()
@@ -1571,8 +2027,10 @@ void handleBMP()
   if (!event.pressure)
   {
     // BMP180 sensor error
+    mqtt_status(MQTT_BMP180)->offline();
     return;
   }
+  mqtt_online(MQTT_BMP180);
   Serial.print("BMP180 Pressure: ");
   Serial.print(event.pressure);
   Serial.println(" hPa");
@@ -1584,8 +2042,9 @@ void handleBMP()
   sensorBaPressure = event.pressure;
 
   // Publish new pressure values through MQTT
-  publishSensorData("BMPpressure", "BMPpressure", sensorBaPressure);
-  publishSensorData("BMPtemperature", "BMPtemperature", convertTemperature(temperature));
+  publishSensorData(MQTT_BMP180, "BMPpressure", "BMPpressure", sensorBaPressure);
+  publishSensorData(MQTT_BMP180, "BMPtemperature", "BMPtemperature",
+                    convertTemperature(temperature));
 
   if (configured_sea_level_pressure > 0)
   {
@@ -1594,7 +2053,7 @@ void handleBMP()
       Serial.print("BMP180 Altitude: ");
       Serial.print(altitude);
       Serial.println(" m");
-      publishSensorData("BMPaltitude", "altitude", altitude);
+      publishSensorData(MQTT_BMP180, "BMPaltitude", "altitude", altitude);
   }
 
   if (configured_altitude >= MIN_ALTITUDE)
@@ -1604,7 +2063,7 @@ void handleBMP()
       Serial.print("BMP180 sea-level pressure: ");
       Serial.print(slp);
       Serial.println(" hPa");
-      publishSensorData("BMPsea-level-pressure", "pressure", slp);
+      publishSensorData(MQTT_BMP180, "BMPsea-level-pressure", "pressure", slp);
   }
 }
 
@@ -1615,16 +2074,31 @@ void handleSensors()
     {
         handleHTU21D();
     }
+    else
+    {
+        mqtt_status(MQTT_HTU21D)->offline();
+    }
+
     if (isSensorAvailable(sensorBMP180))
     {
         i2cSensorToShow = BMP;
         handleBMP();
     }
+    else
+    {
+        mqtt_status(MQTT_BMP180)->offline();
+    }
+
     if (isSensorAvailable(sensorBH1750))
     {
         i2cSensorToShow = (BMP == i2cSensorToShow) ? BOTH : BH;
         handleBH1750();
     }
+    else
+    {
+        mqtt_status(MQTT_BH1750)->offline();
+    }
+
 }
 
 float convertCelsiusToFahrenheit(float temperature)
@@ -1712,7 +2186,7 @@ void publish_uptime()
     serializeJson(json, payload);
     char topic[200];
     sprintf(topic,"%s/%s/uptime", workgroup, machineId);
-    mqttClient.publish(topic, payload);
+    mqtt_client(MQTT_ESP8266)->publish(topic, payload);
 }
 
 void displaySensorsDataI2C()
@@ -1744,12 +2218,12 @@ void loop()
 {
     uptime_loop();
 
-    // put your main code here, to run repeatedly:
-    mqttClient.loop();
+    for (int i = 0; i < MQTT_LAST; i++)
+        mqtt_connections[i].mqttClient.loop();
 
     // Reconnect if there is an issue with the MQTT connection
     const unsigned long mqttConnectionMillis = millis();
-    if ( (false == mqttClient.connected()) && (mqttConnectionInterval <= (mqttConnectionMillis - mqttConnectionPreviousMillis)) )
+    if ( mqttConnectionInterval <= (mqttConnectionMillis - mqttConnectionPreviousMillis) )
     {
         mqttConnectionPreviousMillis = mqttConnectionMillis;
         mqttReconnect();
@@ -1760,18 +2234,24 @@ void loop()
     {
         detectGesture();
     }
+    else
+    {
+        mqtt_status(MQTT_APDS9960)->offline();
+    }
 
     const unsigned long currentMillis = millis();
 
     // Handle button presses at a shorter interval
     if (haveButton && BUTTON_INTERVAL <= (currentMillis - buttonPreviousMillis))
     {
+        mqtt_online(MQTT_BUTTON);
+
         bool currentState = digitalRead(ONE_WIRE_BUS);
 
         if (buttonState != currentState)
         {
             buttonState = currentState;
-            publishSensorData("button/1", "pressed",
+            publishSensorData(MQTT_BUTTON, "button/1", "pressed",
                               currentState ? "ON" : "OFF");
             buttonPreviousMillis = currentMillis;
             displayButton();
@@ -1797,19 +2277,28 @@ void loop()
 
         if (!isnan(humidity) && !isnan(temp))
         {
+            mqtt_online(MQTT_DHT22);
+
             // Adjust temperature depending on the calibration coefficient
             temp = temp*temperatureCoef;
 
             dhtTemperature = temp;
             dhtHumidity = humidity;
-            publishSensorData("air/temperature", "temperature", convertTemperature(temp));
-            publishSensorData("air/humidity", "humidity", humidity);
+            publishSensorData(MQTT_DHT22, "air/temperature", "temperature",
+                              convertTemperature(temp));
+            publishSensorData(MQTT_DHT22, "air/humidity", "humidity", humidity);
 
             // Calculate heat index
             float dhtHeatIndex = dht.computeHeatIndex(dhtTemperature, dhtHumidity, false);
-            publishSensorData("air/heatindex", "heatindex", convertTemperature(dhtHeatIndex));
+            publishSensorData(MQTT_DHT22, "air/heatindex", "heatindex",
+                              convertTemperature(dhtHeatIndex));
             Serial.println("DHT Heat Index: " + formatTemperature(dhtHeatIndex));
         }
+        else
+        {
+            mqtt_status(MQTT_DHT22)->offline();
+        }
+
         setDefaultSensorLines();
 
         long rssiValue = WiFi.RSSI();
@@ -1822,48 +2311,68 @@ void loop()
         }
         else if (0 < sensors.getDeviceCount())
         {
+            mqtt_online(MQTT_DS18B20);
             sensors.requestTemperatures();
             float wtemp = sensors.getTempCByIndex(0);
-            wtemp = wtemp * dsTemperatureCoef;
-            dsTemperature = wtemp;
-            publishSensorData("water/temperature", "temperature", convertTemperature(wtemp));
-            sensor_line3 = "Water " + formatTemperature(dsTemperature);
-            Serial.println(sensor_line3);
-        }
-        else if (NONE != i2cSensorToShow)
-        {
-            displaySensorsDataI2C();
+            if (wtemp == DEVICE_DISCONNECTED_C)
+            {
+                Serial.println("Lost contact with DS18B20");
+                mqtt_status(MQTT_DS18B20)->offline();
+                sensors.begin(); // This will update getDeviceCount.
+            }
+            else
+            {
+                wtemp = wtemp * dsTemperatureCoef;
+                dsTemperature = wtemp;
+                publishSensorData(MQTT_DS18B20, "water/temperature",
+                                  "temperature",
+                                  convertTemperature(wtemp));
+                sensor_line3 = "Water " + formatTemperature(dsTemperature);
+                Serial.println(sensor_line3);
+            }
         }
         else
         {
-            static int select = 0;
-            switch (++select%2) {
-              case 0:
-                timeClient.update();
-                sensor_line3 = "UTC: " + timeClient.getFormattedTime();
-                break;
-              default:
-                sensor_line3 = rssi;
-                break;
+            mqtt_status(MQTT_DS18B20)->offline();
+            sensors.begin(); // Probe for hotplugged DS18B20 sensor.
+
+            if (NONE != i2cSensorToShow)
+            {
+                displaySensorsDataI2C();
+            }
+            else
+            {
+                static int select = 0;
+                switch (++select%2) {
+                case 0:
+                    timeClient.update();
+                    sensor_line3 = "UTC: " + timeClient.getFormattedTime();
+                    break;
+                default:
+                    sensor_line3 = rssi;
+                    break;
+                }
             }
         }
 
         need_redraw = true;
 
-        publishSensorData("wifi/ssid", "ssid", WiFi.SSID());
-        publishSensorData("wifi/bssid", "bssid", WiFi.BSSIDstr());
-        publishSensorData("wifi/rssi", "rssi", rssiValue);
-        publishSensorData("wifi/ip", "ip", WiFi.localIP().toString());
-        publishSensorData("sketch", "sketch", ESP.getSketchMD5());
+        publishSensorData(MQTT_ESP8266, "wifi/ssid", "ssid", WiFi.SSID());
+        publishSensorData(MQTT_ESP8266, "wifi/bssid", "bssid", WiFi.BSSIDstr());
+        publishSensorData(MQTT_ESP8266, "wifi/rssi", "rssi", rssiValue);
+        publishSensorData(MQTT_ESP8266, "wifi/ip", "ip",
+                          WiFi.localIP().toString());
+        publishSensorData(MQTT_ESP8266, "sketch", "sketch", ESP.getSketchMD5());
 
 #ifdef PUBLISH_CHIP_ID
         char chipid[9];
         snprintf(chipid, sizeof(chipid), "%08x", ESP.getChipId());
-        publishSensorData("chipid", "chipid", chipid);
+        publishSensorData(MQTT_ESP8266, "chipid", "chipid", chipid);
 #endif
 
 #ifdef PUBLISH_FREE_HEAP
-        publishSensorData("free-heap", "bytes", ESP.getFreeHeap());
+        publishSensorData(MQTT_ESP8266, "free-heap", "bytes",
+                          ESP.getFreeHeap());
 #endif
     }
 
