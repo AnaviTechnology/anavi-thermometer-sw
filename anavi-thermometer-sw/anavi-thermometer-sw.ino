@@ -705,7 +705,7 @@ void mqtt_dht22_connected(MQTTConnection *c)
 
 #ifdef HOME_ASSISTANT_DISCOVERY
 
-    String homeAssistantTempScale = (true == configTempCelsius) ? "°C" : "°F";
+    String homeAssistantTempScale = (true == configTempCelsius) ? "°C" : "F";
     publishSensorDiscovery("sensor",
                            "temp",
                            "temperature",
@@ -750,7 +750,7 @@ void mqtt_bmp180_connected(MQTTConnection *c)
 
 #ifdef HOME_ASSISTANT_DISCOVERY
 
-    String homeAssistantTempScale = (true == configTempCelsius) ? "°C" : "°F";
+    String homeAssistantTempScale = (true == configTempCelsius) ? "°C" : "F";
 
     publishSensorDiscovery("sensor",
                            "bmp180-pressure",
@@ -2114,7 +2114,7 @@ float convertTemperature(float temperature)
 
 String formatTemperature(float temperature)
 {
-    String unit = (true == configTempCelsius) ? "°C" : "°F";
+    String unit = (true == configTempCelsius) ? "°C" : "F";
     return String(convertTemperature(temperature), 1) + unit;
 }
 
@@ -2194,11 +2194,11 @@ void displaySensorsDataI2C()
 {
     if (BMP == i2cSensorToShow)
     {
-        sensor_line3 = "Baro " + String(round(sensorBaPressure), 0) + "hPa";
+        sensor_line3 = "Baro " + String(round(sensorBaPressure), 0) + " hPa";
     }
     else if (BH == i2cSensorToShow)
     {
-        sensor_line3 = "Light " + String(sensorAmbientLight) + "lx";
+        sensor_line3 = "Light " + String(sensorAmbientLight) + " lx";
     }
     else if (BOTH == i2cSensorToShow)
     {
@@ -2206,10 +2206,10 @@ void displaySensorsDataI2C()
         switch (++sensorSelect%2)
         {
             case 0:
-                sensor_line3 = "Light " + String(sensorAmbientLight) + "lx";
+                sensor_line3 = "Light " + String(sensorAmbientLight) + " lx";
             break;
             default:
-                sensor_line3 = "Baro " + String(round(sensorBaPressure), 0) + "hPa";
+                sensor_line3 = "Baro " + String(round(sensorBaPressure), 0) + " hPa";
             break;
         }
     }
