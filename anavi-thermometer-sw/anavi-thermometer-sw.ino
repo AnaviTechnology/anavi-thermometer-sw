@@ -539,13 +539,20 @@ void MQTTStatus::publish_online(bool force_update)
 }
 
 MQTTConnection::MQTTConnection()
-    : espClient(), mqttClient(espClient), requested(false), status_list(0)
+    : espClient(), mqttClient(espClient), requested(false),
+      status_list(0), client_id(PRODUCT)
 {
 }
 
 void MQTTConnection::set_spec(const MQTTSpec *spec)
 {
-    client_id = String("anavi-thermometer-") + machineId + "-" + spec->topic;
+    String minId(machineId);
+    if (minId.length() > 5)
+    {
+      minId = minId.substring(minId.length() - 5);
+    }
+    client_id = String("anavi-") + minId + "-" + spec->topic;
+    Serial.println("set_spec client_id: " + client_id);
 }
 
 void MQTTConnection::connect()
