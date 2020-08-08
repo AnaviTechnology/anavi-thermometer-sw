@@ -20,6 +20,11 @@
 //
 // This requires PubSubClient 2.7.
 
+// Enable the logic for detection a button instead of DS18B20 sensor
+// By default it is disable due to a bug with detecting OneWire devices
+// after OneWire reset command.
+// #define BUTTONSUPPORT 1
+
 #define HOME_ASSISTANT_DISCOVERY 1
 
 // If PUBLISH_CHIP_ID is defined, the Anavi Thermometer will publish
@@ -1037,6 +1042,32 @@ void mqtt_online(MQTTName name, bool board = false)
 #endif
 }
 
+void initOneWireSensors()
+{
+#ifdef BUTTONSUPPORT
+    if (oneWire.reset())
+    {
+        sensors.begin();
+    }
+    else
+    {
+        pinMode(ONE_WIRE_BUS, INPUT);
+        delay(1);
+        if (false == digitalRead(ONE_WIRE_BUS))
+        {
+            haveButton = true;
+            buttonPreviousMillis = millis();
+        }
+        else
+        {
+            sensors.begin();
+        }
+    }
+#else
+    sensors.begin();
+#endif
+}
+
 void setup()
 {
     uptime.d = 0;
@@ -1066,24 +1097,7 @@ void setup()
     timeClient.begin();
     u8g2.begin();
     dht.begin();
-    if (oneWire.reset())
-    {
-        sensors.begin();
-    }
-    else
-    {
-        pinMode(ONE_WIRE_BUS, INPUT);
-        delay(1);
-        if (false == digitalRead(ONE_WIRE_BUS))
-        {
-            haveButton = true;
-            buttonPreviousMillis = millis();
-        }
-        else
-        {
-            sensors.begin();
-        }
-    }
+    initOneWireSensors();
 
     delay(10);
 
