@@ -2408,4 +2408,7 @@ void loop()
 
     // Press and hold the button to reset to factory defaults
     factoryReset();
+
+    // Short sleep to reduce power consumption
+    delay(1);
 }
