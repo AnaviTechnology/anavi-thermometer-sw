@@ -1,16 +1,16 @@
-# anavi-thermometer-sw
+# ANAVI Thermometer software
 
 This repository contains the default open source Arduino sketch for the smart WiFi dev board [ANAVI Thermometer](https://anavi.technology/).
 
-You can [build and upload the sketch through Arduino IDE](https://www.youtube.com/watch?v=HMIkPuz0ZJs) **or** [to download a pre-compiled binary of a stable release and flash it with `esptool`](https://blog.anavi.technology/?p=209). It you just want to upload the latest stable release it is easier and recommended to use `esptool.py`.
+You can [build and upload the sketch through the Arduino IDE](https://www.youtube.com/watch?v=HMIkPuz0ZJs) **or** [download a pre-compiled binary of a stable release and flash it with `esptool`](https://blog.anavi.technology/?p=209). It you just want to upload the latest stable release it is easier and recommended to use `esptool.py`.
 
-# User's Manual
+## User Guide
 
 [ANAVI Thermometer User's Manual](https://github.com/AnaviTechnology/anavi-docs/blob/master/anavi-thermometer/anavi-thermometer.md)
 
-# Dependencies
+## Dependencies
 
-The default firmware of ANAVI Thermometer depends on the following Arduino libraries:
+The default firmware of ANAVI Thermometer depends on the following Arduino libraries, which must be added in the Arduino IDE before compiling the sketch.
 
 * [WiFiManager by tzapu](https://github.com/tzapu/WiFiManager) (version 0.15.0)
 * [ArduinoJson by Benoit Blanchon](https://arduinojson.org/) (version 6.11.2)
