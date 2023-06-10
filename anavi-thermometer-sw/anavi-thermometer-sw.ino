@@ -15,8 +15,9 @@
 // #define MQTT_SERVER "mydomain.duckdns.example.org"
 
 // If HOME_ASSISTANT_DISCOVERY is defined, the Anavi Thermometer will
-// publish MQTT messages that enable Home Assistant to auto-discover the
-// device.  See https://www.home-assistant.io/docs/mqtt/discovery/.
+// publish MQTT messages that enable Home Assistant to auto-discover
+// the device.  See
+// https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery
 //
 // This requires PubSubClient 2.7.
 #define HOME_ASSISTANT_DISCOVERY 1
