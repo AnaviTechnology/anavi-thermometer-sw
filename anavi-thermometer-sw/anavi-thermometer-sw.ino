@@ -170,7 +170,7 @@
 // but the ANAVI Thermometer can have multiple sensors.  We would
 // ideally like to have one will per sensor.  That would allow Home
 // Assistant to automatically detect that all sensor readings are
-// available if you turn off the ANAVI Thermometer.
+// unavailable if you turn off the ANAVI Thermometer.
 //
 // These status topics are named
 // "<workgroup>/<machineid>/status/<sensor>", where <sensor> can be
@@ -190,8 +190,8 @@
 // else that subscribes to the esp8266 status topic and publishes
 // "offline" messages to all other status topics whenever it receives
 // an "offline" message.  Is is possible to set up this in Home
-// Assistant as a automation similar to this (assuming the <machineid>
-// is "deadbeef"):
+// Assistant as an automation similar to this (assuming the
+// <machineid> is "deadbeef"):
 //
 //     - id: '4711'
 //       alias: Track ANAVI Thermometer disconnect in dht22status
