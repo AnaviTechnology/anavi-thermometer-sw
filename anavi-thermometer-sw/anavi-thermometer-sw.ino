@@ -1,4 +1,81 @@
 // -*- mode: c++; indent-tabs-mode: nil; c-file-style: "stroustrup" -*-
+
+// This is anavi-thermometer-sw.ino, the default firmware of ANAVI
+// Thermometer. The canonical home for this software is:
+// https://github.com/AnaviTechnology/anavi-thermometer-sw for more
+
+// === MQTT Summary ===
+//
+// For convenience, this comment summarizes how this sketch uses MQTT.
+// Some of the topics are explained in more detail elsewhere.
+//
+// == Commands ==
+//
+// The ANAVI Thermometer listens to the following MQTT commands. The
+// command should be prefixed by "cmnd/$MACHINEID/".
+//
+// | Command            | Args      |
+// | sea-level-pressure | float     |
+// | altitude           | meters    |
+// | line1              | string    |
+// | line2              | string    |
+// | line3              | string    |
+// | tempcoef           | float     |
+// | water/tempoef      | float     |
+// | tempformat         | { "scale": "celsius" or "fahrenheit" } |
+// | restart            | (ignored) |
+//
+// Some commands are only available if a certain symbol was defined
+// when the sketch was compiled:
+//
+// | Symbol             | Command      | Args      |
+// | OTA_UPGRADES       | update       | {"file": f, "server": h, "port": p } |
+// | OTA_FACTORY_RESET  |factory-reset | (ignored) |
+//
+// == Status messages ==
+//
+// The ANAVI Thermometer publishes these status messages. The topic
+// is prefixed with "$WORKGROUP/$MACHINEID/".
+//
+// | Topic             | Value                        | Requirement
+// | status/<sensor>   | "online" or "offline"        | USE_MULTIPLE_STATUS_TOPICS, USE_MULTIPLE_MQTT
+// | status/esp8266    | "online" or "offline"        | USE_MULTIPLE_STATUS_TOPICS
+// | button/1          | { "pressed": "ON" or "OFF" } | BUTTONSUPPORT
+// | free-heap         | { "bytes": b }               | PUBLISH_FREE_HEAP
+// | BMPaltitude       | { "altitude": 72.3 }         | Requires sea-level-preassure to be set.
+// | BMPsea-level-pressure | { pressure: 1028.4 }     | Requires the altitude to be set
+// | temperature       | { temperature: float }
+// | humidity          | { humidity: float }
+// | light             | { light: float }
+// | gesture           | { gesture: "down"/"up"/"left"/"right" }
+// | BMPpressure       | { BMPpressure: float }
+// | BMPtemperature    | { BMPtemperature: float }
+// | air/dht22-temp    | { temperature: float }
+// | air/temperature   | { temperature: float }
+// | air/humidity      | { humidity: float }
+// | air/heatindex     | { heatindex: float }
+// | water/temperature | { temperature: float }
+// | wifi/ssid         | { ssid: str }
+// | wifi/bssid        | { bssid: str }
+// | wifi/rssi         | { rssi: float }
+// | wifi/ip           | { ip: str }
+// | sketch            | { sketch: md5 }
+// | chipid            | { chipid: hex }
+// | free-heap         | { bytes: int }
+//
+// Additionally, some status messages are published with the
+// "stat/$MACHINEID" prefix:
+//
+// | tempcoef       | float |
+// | water/tempcoef | float |
+//
+// Additionally, if HOME_ASSISTANT_DISCOVERY is defined, ANAVI
+// Thermometer will publish the following discovery messages if the
+// corresponding sensor is detected:
+//
+// homeassistant/$COMPONENT/$MACHINEID/$CONFIG_KEY/config
+
+
 #include <FS.h> //this needs to be first, or it all crashes and burns...
 
 // Username and password to use for MQTT.  If these are defined, they
