@@ -452,11 +452,20 @@ struct MQTTSpec
 #endif
 };
 
+// Represents the availability status of a single sensor.
 class MQTTStatus
 {
 public:
     String availability_topic;
+
+#ifdef MQTT_MODE_MIXED
+    // Linked list of all sensors that were ever online.  When the
+    // MQTT connection is re-established, we will update the
+    // availabiliy of all of them, in case the will has set them to
+    // offline.
     MQTTStatus *status_list;
+#endif
+
     MQTTConnection *conn;
 
     MQTTStatus();
@@ -484,6 +493,13 @@ public:
     void set_spec(const MQTTSpec *spec);
     void connect();
     void reconnect();
+
+    // All availability status objects announced over this connection.
+    // For MQTT_MODE_SINGLE and MQTT_MODE_MULTIPLE, each connection
+    // will have exactly one MQTTStatus, so the "_list" suffix is a
+    // bit misleading.  For MQTT_MODE_MIXED, this will actually be a
+    // linked list of all the MQTTStatus objects that have ever been
+    // announced since the ANAVI Thermometer booted.
     MQTTStatus *status_list;
 
 protected:
@@ -491,8 +507,11 @@ protected:
 };
 
 MQTTStatus::MQTTStatus()
-    : status_list(0), topic(0), connect_cb(0),
-      is_online(false), last_online(false)
+    :
+#ifdef MQTT_MODE_MIXED
+    status_list(0),
+#endif
+    topic(0), connect_cb(0), is_online(false), last_online(false)
 {
 }
 
@@ -523,8 +542,10 @@ void MQTTStatus::online(bool board)
         // Insert this as the second element on the status_list.  The
         // first element must always be the status of the ESP8266
         // itself.
+#ifdef MQTT_MODE_MIXED
         status_list = conn->status_list->status_list;
         conn->status_list->status_list = this;
+#endif
         (*connect_cb)(conn);
     }
 #endif
