@@ -2287,6 +2287,34 @@ void displaySensorsDataI2C()
     }
 }
 
+// Returns true if we have computed something to be shown on the
+// display.
+bool handle_ds18b20()
+{
+    int count = sensors.getDeviceCount();
+    if (count <= 0)
+        return false;
+
+    sensors.requestTemperatures();
+    float wtemp = sensors.getTempCByIndex(0);
+    if (wtemp == DEVICE_DISCONNECTED_C)
+    {
+        Serial.println("Lost contact with DS18B20");
+        return false;
+    }
+
+    wtemp = wtemp * dsTemperatureCoef;
+    dsTemperature = wtemp;
+    mqtt_online(MQTT_DS18B20);
+    publishSensorData(MQTT_DS18B20, "water/temperature",
+                      "temperature",
+                      convertTemperature(wtemp));
+    sensor_line3 = "Water " + formatTemperature(dsTemperature);
+    Serial.println(sensor_line3);
+    return true;
+}
+
+
 void loop()
 {
     uptime_loop();
@@ -2382,27 +2410,8 @@ void loop()
         {
             displayButton();
         }
-        else if (0 < sensors.getDeviceCount())
+        else if (handle_ds18b20())
         {
-            mqtt_online(MQTT_DS18B20);
-            sensors.requestTemperatures();
-            float wtemp = sensors.getTempCByIndex(0);
-            if (wtemp == DEVICE_DISCONNECTED_C)
-            {
-                Serial.println("Lost contact with DS18B20");
-                mqtt_status(MQTT_DS18B20)->offline();
-                sensors.begin(); // This will update getDeviceCount.
-            }
-            else
-            {
-                wtemp = wtemp * dsTemperatureCoef;
-                dsTemperature = wtemp;
-                publishSensorData(MQTT_DS18B20, "water/temperature",
-                                  "temperature",
-                                  convertTemperature(wtemp));
-                sensor_line3 = "Water " + formatTemperature(dsTemperature);
-                Serial.println(sensor_line3);
-            }
         }
         else
         {
