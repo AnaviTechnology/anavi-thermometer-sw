@@ -376,6 +376,10 @@ char workgroup[32] = "workgroup";
 char username[20] = "";
 char password[20] = "";
 #ifdef HOME_ASSISTANT_DISCOVERY
+// The base name of this device.  The device name will be formed by
+// appending " ANAVI Thermometer".  The sensor names will be formed by
+// appending " temperature", " humidity", and other unique suffixes
+// depending on which sensor produces the value.
 char ha_name[32 + 1] = ""; // Make sure the machineId fits.
 #endif
 #ifdef OTA_UPGRADES
@@ -1218,7 +1222,7 @@ void setup()
     WiFiManagerParameter custom_mqtt_pass("pass", "MQTT password", password, sizeof(password));
 #endif
 #ifdef HOME_ASSISTANT_DISCOVERY
-    WiFiManagerParameter custom_mqtt_ha_name("ha_name", "Sensor name for Home Assistant", ha_name, sizeof(ha_name));
+    WiFiManagerParameter custom_mqtt_ha_name("ha_name", "Device name for Home Assistant", ha_name, sizeof(ha_name));
 #endif
 #ifdef OTA_UPGRADES
     WiFiManagerParameter custom_ota_server("ota_server", "OTA server", ota_server, sizeof(ota_server));
@@ -1382,7 +1386,7 @@ void setup()
         Serial.println("Fahrenheit");
     }
 #ifdef HOME_ASSISTANT_DISCOVERY
-    Serial.print("Home Assistant sensor name: ");
+    Serial.print("Home Assistant device name: ");
     Serial.println(ha_name);
 #endif
 #ifdef OTA_UPGRADES
@@ -1836,7 +1840,7 @@ bool publishSensorDiscovery(const char *component,
     json["device"]["identifiers"] = machineId;
     json["device"]["manufacturer"] = "ANAVI Technology";
     json["device"]["model"] = PRODUCT;
-    json["device"]["name"] = String(ha_name) + " " + name_suffix;
+    json["device"]["name"] = String(ha_name) + " ANAVI Thermometer";
     json["device"]["sw_version"] = ESP.getSketchMD5();
 
     JsonArray connections = json["device"].createNestedArray("connections").createNestedArray();
