@@ -729,7 +729,7 @@ void mqtt_dht22_connected(MQTTConnection *c)
                            "temp",
                            "temperature",
                            "Temperature",
-                           "/air/temperature",
+                           "air/temperature",
                            homeAssistantTempScale.c_str(),
                            "{{ value_json.temperature | round(1) }}",
                            MQTT_DHT22);
@@ -738,7 +738,7 @@ void mqtt_dht22_connected(MQTTConnection *c)
                            "humidity",
                            "humidity",
                            "Humidity",
-                           "/air/humidity",
+                           "air/humidity",
                            "%",
                            "{{ value_json.humidity }}",
                            MQTT_DHT22);
@@ -755,7 +755,7 @@ void mqtt_ds18b20_connected(MQTTConnection *c)
                            "watertemp",
                            "temperature",
                            "Water Temp",
-                           "/water/temperature",
+                           "water/temperature",
                            "°C",
                            "{{ value_json.temperature }}",
                            MQTT_DS18B20);
@@ -775,7 +775,7 @@ void mqtt_bmp180_connected(MQTTConnection *c)
                            "bmp180-pressure",
                            "pressure",
                            "BMP180 Air Pressure",
-                           "/BMPpressure",
+                           "BMPpressure",
                            "hPa",
                            "{{ value_json.BMPpressure }}",
                            MQTT_BMP180);
@@ -784,7 +784,7 @@ void mqtt_bmp180_connected(MQTTConnection *c)
                            "bmp180-temp",
                            "temperature",
                            "BMP180 Temperature",
-                           "/BMPtemperature",
+                           "BMPtemperature",
                            homeAssistantTempScale.c_str(),
                            "{{ value_json.BMPtemperature }}",
                            MQTT_BMP180);
@@ -800,7 +800,7 @@ void mqtt_bh1750_connected(MQTTConnection *c)
                            "light",
                            "illuminance",
                            "Light",
-                           "/light",
+                           "light",
                            "Lux",
                            "{{ value_json.light }}",
                            MQTT_BH1750);
@@ -826,7 +826,7 @@ void mqtt_button_connected(MQTTConnection *c)
                            "button",
                            0,
                            "Button 1",
-                           "/button/1",
+                           "button/1",
                            0,
                            "{{ value_json.pressed }}",
                            MQTT_BUTTON);
@@ -1803,7 +1803,7 @@ void mqttReconnect()
 //
 // - state_topic: The topic where this sensor publishes its state.
 //   The workgroup and machineId will be prepended to form the actual
-//   topic.  This should always start with a slash.
+//   topic.  This should never start with a slash.
 //
 // - unit: The unit_of_measurement, or 0.
 //
@@ -1827,7 +1827,7 @@ bool publishSensorDiscovery(const char *component,
         json["device_class"] = device_class;
     json["name"] = String(ha_name) + " " + name_suffix;
     json["unique_id"] = String("anavi-") + machineId + "-" + config_key;
-    json["state_topic"] = String(workgroup) + "/" + machineId + state_topic;
+    json["state_topic"] = String(workgroup) + "/" + machineId + "/" + state_topic;
     if (unit)
         json["unit_of_measurement"] = unit;
     json["value_template"] = value_template;
@@ -1889,7 +1889,7 @@ void publishState()
                                       // Home Assistant, so we claim
                                       // to be a generic sensor.
                                    "BMP180 Altitude",
-                                   "/BMPaltitude",
+                                   "BMPaltitude",
                                    "m",
                                    "{{ value_json.altitude }}",
                                    MQTT_BMP180);
@@ -1901,7 +1901,7 @@ void publishState()
                                    "bmp180-slp",
                                    "pressure",
                                    "BMP180 Sea-Level Pressure",
-                                   "/BMPsea-level-pressure",
+                                   "BMPsea-level-pressure",
                                    "hPa",
                                    "{{ value_json.pressure }}",
                                    MQTT_BMP180);
