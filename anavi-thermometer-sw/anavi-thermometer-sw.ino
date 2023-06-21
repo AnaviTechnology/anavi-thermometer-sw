@@ -447,7 +447,9 @@ struct MQTTSpec
     MQTTName name;
     const char *topic;
     void (*connect_cb)(MQTTConnection *);
-    bool ever_online;           // Only used in MQTT_MODE_SINGLE
+#ifdef MQTT_MODE_SINGLE
+    bool ever_online;
+#endif
 };
 
 class MQTTStatus
@@ -859,15 +861,15 @@ void mqtt_button_connected(MQTTConnection *c)
 
 // The order must match the enum MQTTName.
 struct MQTTSpec mqtt_specs[] = {
-    {MQTT_ESP8266, "esp8266", mqtt_esp8266_connected, false},
-    {MQTT_DHT22, "dht22", mqtt_dht22_connected, false},
-    {MQTT_DS18B20, "ds18b20", mqtt_ds18b20_connected, false},
-    {MQTT_BMP180, "bmp180", mqtt_bmp180_connected, false},
-    {MQTT_BH1750, "bh1750", mqtt_bh1750_connected, false},
-    {MQTT_HTU21D, "htu21d", mqtt_htu21d_connected, false},
-    {MQTT_APDS9960, "apds9960", mqtt_apds9960_connected, false},
-    {MQTT_BUTTON, "button", mqtt_button_connected, false},
-    {MQTT_ESP8266, 0, 0, false}, // Sentinel used by call_mqtt_connect_cbs()
+    {MQTT_ESP8266, "esp8266", mqtt_esp8266_connected},
+    {MQTT_DHT22, "dht22", mqtt_dht22_connected},
+    {MQTT_DS18B20, "ds18b20", mqtt_ds18b20_connected},
+    {MQTT_BMP180, "bmp180", mqtt_bmp180_connected},
+    {MQTT_BH1750, "bh1750", mqtt_bh1750_connected},
+    {MQTT_HTU21D, "htu21d", mqtt_htu21d_connected},
+    {MQTT_APDS9960, "apds9960", mqtt_apds9960_connected},
+    {MQTT_BUTTON, "button", mqtt_button_connected},
+    {MQTT_ESP8266, 0, 0}, // Sentinel used by call_mqtt_connect_cbs()
 };
 
 #ifdef MQTT_MODE_SINGLE
