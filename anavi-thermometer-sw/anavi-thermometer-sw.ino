@@ -27,6 +27,27 @@
 // after OneWire reset command.
 // #define BUTTONSUPPORT 1
 
+// By default, the code supports a single DS18B20 sensor.  It will
+// report its reading on the $WORKGROUP/$MACHINEID/water/temperature
+// MQTT topic.
+//
+// But the 1-Wire hardware supports connecting multiple DS18B20
+// sensors.  Each sensor has a unique factory-assigned ID.  By
+// defining MULTI_DS18B20_SUPPORT, each sensor will report its
+// temperature on $WORKGROUP/$MACHINEID/ds18b20/$SENSORID/temperature,
+// where $SENSORID is the factory-assigned ID (16 hexadecimal digits).
+//
+// If MULTI_DS18B20_SUPPORT is enabled, the "water/temperature" topic
+// won't be used.  Calibration (via cmnd/$MACHINEID/water/tempcoef) is
+// also not available in MULTI_DS18B20_SUPPORT mode.
+//
+// This code has been tested with 14 DS18B20 sensors connected to the
+// same system.  It worked fine, but if USE_MULTIPLE_MQTT is defined
+// only about 6 kB of free RAM were left.  If you don't define
+// USE_MULTIPLE_MQTT you will be able to connect even more sensors.
+// (At some point, you might have to add an external power supply.)
+#undef MULTI_DS18B20_SUPPORT
+
 // If PUBLISH_CHIP_ID is defined, the Anavi Thermometer will publish
 // the chip ID using MQTT.  This can be considered a privacy issue,
 // and is disabled by default.
@@ -421,7 +442,9 @@ enum MQTTName
 {
     MQTT_ESP8266,
     MQTT_DHT22,
+#ifndef MULTI_DS18B20_SUPPORT
     MQTT_DS18B20,
+#endif
     MQTT_BMP180,
     MQTT_BH1750,
     MQTT_HTU21D,
@@ -620,6 +643,93 @@ void MQTTConnection::connect()
     reconnect();
 }
 
+#ifdef MULTI_DS18B20_SUPPORT
+// Handle a single connected DS18B20 sensor.
+class ConnectedDS18B20
+{
+public:
+    static constexpr int addr_size = 8;
+
+    // All ConnectedDS18B20 objects are linked on a singly linked
+    // list.  (While DS18B20Registry::loop() is running, they are
+    // actually present on one of two lists.)
+    ConnectedDS18B20 *next;
+
+#ifdef MQTT_MODE_MIXED
+    void publish_offline();
+#endif
+#if defined(MQTT_MODE_MULTIPLE) || defined(MQTT_MODE_MIXED)
+    void publish_online();
+#endif
+
+#ifdef MQTT_MODE_MULTIPLE
+    void mqtt_loop();
+#endif
+
+    ConnectedDS18B20(const uint8_t *addr);
+    void handle_temp(float wtemp);
+    bool same_addr(const uint8_t (&addr)[addr_size]);
+    void publish_discovery();
+private:
+    static int next_id;
+
+    uint8_t raw_addr[addr_size];
+    char hex_addr[2 * addr_size + 1];
+    String topic;
+#if defined(MQTT_MODE_MULTIPLE) || defined(MQTT_MODE_MIXED)
+    String availability_topic;
+#endif
+#ifdef MQTT_MODE_MULTIPLE
+    WiFiClient espClient;
+    PubSubClient mqttClient;
+    String client_id;
+    void reconnect();
+#endif
+
+    PubSubClient *client();
+};
+
+// Handle all connected DS18B20 devices.
+class DS18B20Registry
+{
+public:
+    DS18B20Registry();
+    bool loop();
+    void mqtt_loop();
+#ifdef MQTT_MODE_MIXED
+    void mqtt_reconnected();
+#endif
+
+private:
+    // A linked list of all connected devices.
+    ConnectedDS18B20 *online;
+
+    // This points to the last entry on the online list, so that we
+    // can quickly append a new node without traversing the entire
+    // linked list.
+    ConnectedDS18B20 **last_online;
+
+    // When a measurement cycle begins, all nodes are moved from the
+    // "online" to the "unprobed" list. As we detect the devices, they
+    // are moved from "unprobed" to "online". Any device that remains
+    // on "unprobed" once this is done is assumed to have been
+    // disconnected; the corresponding ConnectedDS18B20 object will be
+    // deleted.
+    ConnectedDS18B20 *unprobed;
+
+    // Append d last on the online list.
+    ConnectedDS18B20 *append_online(ConnectedDS18B20 *d);
+
+    // Look for a particular device on the "unprobed" list. If found,
+    // unlink it and append it to the "online" list. If not found,
+    // create a new device and apped it to the "online" list.
+    ConnectedDS18B20 *find_device(const uint8_t (&addr)[ConnectedDS18B20::addr_size]);
+};
+
+DS18B20Registry ds18b20_registry;
+
+#endif
+
 void MQTTConnection::reconnect()
 {
     if (!requested || mqttClient.connected())
@@ -648,6 +758,9 @@ void MQTTConnection::reconnect()
             status->publish_online(true);
             status = status->status_list;
         }
+#ifdef MULTI_DS18B20_SUPPORT
+        ds18b20_registry.mqtt_reconnected();
+#endif
 #endif
 #ifdef MQTT_MODE_SINGLE
         call_mqtt_connect_cbs(this);
@@ -718,7 +831,9 @@ char line1_topic[11 + sizeof(machineId)];
 char line2_topic[11 + sizeof(machineId)];
 char line3_topic[11 + sizeof(machineId)];
 char cmnd_temp_coefficient_topic[14 + sizeof(machineId)];
+#ifndef MULTI_DS18B20_SUPPORT
 char cmnd_ds_temp_coefficient_topic[20 + sizeof(machineId)];
+#endif
 char cmnd_temp_format[16 + sizeof(machineId)];
 
 // The display can fit 26 "i":s on a single line.  It will fit even
@@ -734,7 +849,9 @@ String sensor_line3;
 bool need_redraw = false;
 
 char stat_temp_coefficient_topic[14 + sizeof(machineId)];
+#ifndef MULTI_DS18B20_SUPPORT
 char stat_ds_temp_coefficient_topic[20 + sizeof(machineId)];
+#endif
 
 struct Uptime
 {
@@ -797,6 +914,7 @@ void mqtt_dht22_connected(MQTTConnection *c)
 #endif
 }
 
+#ifndef MULTI_DS18B20_SUPPORT
 void mqtt_ds18b20_connected(MQTTConnection *c)
 {
     c->mqttClient.subscribe(cmnd_ds_temp_coefficient_topic);
@@ -813,6 +931,7 @@ void mqtt_ds18b20_connected(MQTTConnection *c)
                            MQTT_DS18B20);
 #endif
 }
+#endif
 
 void mqtt_bmp180_connected(MQTTConnection *c)
 {
@@ -889,7 +1008,9 @@ void mqtt_button_connected(MQTTConnection *c)
 struct MQTTSpec mqtt_specs[] = {
     {MQTT_ESP8266, "esp8266", mqtt_esp8266_connected},
     {MQTT_DHT22, "dht22", mqtt_dht22_connected},
+#ifndef MULTI_DS18B20_SUPPORT
     {MQTT_DS18B20, "ds18b20", mqtt_ds18b20_connected},
+#endif
     {MQTT_BMP180, "bmp180", mqtt_bmp180_connected},
     {MQTT_BH1750, "bh1750", mqtt_bh1750_connected},
     {MQTT_HTU21D, "htu21d", mqtt_htu21d_connected},
@@ -964,8 +1085,10 @@ void load_calibration()
     configFile.close();
     Serial.print("DHT22: ");
     Serial.println(temperatureCoef);
+#ifndef MULTI_DS18B20_SUPPORT
     Serial.print("DS18B20: ");
     Serial.println(dsTemperatureCoef);
+#endif
 }
 
 void save_calibration()
@@ -1242,8 +1365,10 @@ void setup()
     sprintf(line3_topic, "cmnd/%s/line3", machineId);
     sprintf(cmnd_temp_coefficient_topic, "cmnd/%s/tempcoef", machineId);
     sprintf(stat_temp_coefficient_topic, "stat/%s/tempcoef", machineId);
+#ifndef MULTI_DS18B20_SUPPORT
     sprintf(cmnd_ds_temp_coefficient_topic, "cmnd/%s/water/tempcoef", machineId);
     sprintf(stat_ds_temp_coefficient_topic, "stat/%s/water/tempcoef", machineId);
+#endif
     sprintf(cmnd_temp_format, "cmnd/%s/tempformat", machineId);
 #ifdef OTA_UPGRADES
     sprintf(cmnd_update_topic, "cmnd/%s/update", machineId);
@@ -1741,11 +1866,13 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
         save_calibration();
     }
 
+#ifndef MULTI_DS18B20_SUPPORT
     if (strcmp(topic, cmnd_ds_temp_coefficient_topic) == 0)
     {
         dsTemperatureCoef = atof(text);
         save_calibration();
     }
+#endif
 
     if (strcmp(topic, cmnd_temp_format) == 0)
     {
@@ -1869,7 +1996,24 @@ bool publishSensorDiscovery(const char *component,
                             const char *value_template,
                             MQTTName mqtt_name)
 {
-    static char topic[48 + sizeof(machineId)];
+    return publishSensorDiscovery(component, config_key, device_class,
+                                  name_suffix, state_topic, unit,
+                                  value_template,
+                                  mqtt_status(mqtt_name)->availability_topic,
+                                  mqtt_client(mqtt_name));
+}
+
+bool publishSensorDiscovery(const char *component,
+                            const char *config_key,
+                            const char *device_class,
+                            const char *name_suffix,
+                            const char *state_topic,
+                            const char *unit,
+                            const char *value_template,
+                            String availability_topic,
+                            PubSubClient *client)
+{
+    static char topic[80 + sizeof(machineId)];
 
     snprintf(topic, sizeof(topic),
              "homeassistant/%s/%s/%s/config", component, machineId, config_key);
@@ -1883,7 +2027,7 @@ bool publishSensorDiscovery(const char *component,
     if (unit)
         json["unit_of_measurement"] = unit;
     json["value_template"] = value_template;
-    json["availability_topic"] = mqtt_status(mqtt_name)->availability_topic;
+    json["availability_topic"] = availability_topic;
 
     json["device"]["identifiers"] = machineId;
     json["device"]["manufacturer"] = "ANAVI Technology";
@@ -1899,19 +2043,19 @@ bool publishSensorDiscovery(const char *component,
     Serial.println(topic);
 
     int payload_len = measureJson(json);
-    if (!mqtt_client(mqtt_name)->beginPublish(topic, payload_len, true))
+    if (!client->beginPublish(topic, payload_len, true))
     {
         Serial.println("beginPublish failed!\n");
         return false;
     }
 
-    if (serializeJson(json, *mqtt_client(mqtt_name)) != payload_len)
+    if (serializeJson(json, *client) != payload_len)
     {
         Serial.println("writing payload: wrong size!\n");
         return false;
     }
 
-    if (!mqtt_client(mqtt_name)->endPublish())
+    if (!client->endPublish())
     {
         Serial.println("endPublish failed!\n");
         return false;
@@ -1926,8 +2070,10 @@ void publishState()
     static char payload[80];
     snprintf(payload, sizeof(payload), "%f", temperatureCoef);
     mqtt_client(MQTT_DHT22)->publish(stat_temp_coefficient_topic, payload, true);
+#ifndef MULTI_DS18B20_SUPPORT
     snprintf(payload, sizeof(payload), "%f", dsTemperatureCoef);
     mqtt_client(MQTT_DS18B20)->publish(stat_ds_temp_coefficient_topic, payload, true);
+#endif
 
 #ifdef HOME_ASSISTANT_DISCOVERY
 
@@ -1966,16 +2112,30 @@ void publishState()
 void publishSensorData(MQTTName mqtt_name, const char *subTopic,
                        const char *key, const float value)
 {
+    publishSensorData(mqtt_client(mqtt_name), subTopic,
+                      key, value);
+}
+
+void publishSensorData(PubSubClient *client, const char *subTopic,
+                       const char *key, const float value)
+{
     StaticJsonDocument<100> json;
     json[key] = value;
     char payload[100];
     serializeJson(json, payload);
     char topic[200];
     sprintf(topic, "%s/%s/%s", workgroup, machineId, subTopic);
-    mqtt_client(mqtt_name)->publish(topic, payload, true);
+    client->publish(topic, payload, true);
 }
 
 void publishSensorData(MQTTName mqtt_name, const char *subTopic,
+                       const char *key, const String &value)
+{
+    publishSensorData(mqtt_client(mqtt_name), subTopic,
+                      key, value);
+}
+
+void publishSensorData(PubSubClient *client, const char *subTopic,
                        const char *key, const String &value)
 {
     StaticJsonDocument<100> json;
@@ -1984,7 +2144,7 @@ void publishSensorData(MQTTName mqtt_name, const char *subTopic,
     serializeJson(json, payload);
     char topic[200];
     sprintf(topic, "%s/%s/%s", workgroup, machineId, subTopic);
-    mqtt_client(mqtt_name)->publish(topic, payload, true);
+    client->publish(topic, payload, true);
 }
 
 bool isSensorAvailable(int sensorAddress)
@@ -2292,10 +2452,274 @@ void displaySensorsDataI2C()
     }
 }
 
+#ifdef MULTI_DS18B20_SUPPORT
+int ConnectedDS18B20::next_id = 1;
+
+ConnectedDS18B20::ConnectedDS18B20(const uint8_t *addr)
+    : next(nullptr)
+#ifdef MQTT_MODE_MULTIPLE
+    , espClient()
+    , mqttClient(espClient)
+#endif
+{
+#ifdef MQTT_MODE_MULTIPLE
+#ifdef MQTT_SERVER
+    mqttClient.setServer(MQTT_SERVER, atoi(mqtt_port));
+#else
+    mqttClient.setServer(mqtt_server, atoi(mqtt_port));
+#endif
+#endif
+
+    memcpy(&raw_addr, addr, addr_size);
+
+    for (int d = 0; d < addr_size; d++)
+        sprintf(hex_addr + 2 * d, "%02x", addr[d]);
+
+    String sensor_id = String("ds18b20_") + hex_addr;
+    topic = String("ds18b20/") + String(hex_addr) + "/temperature";
+
+#if defined(MQTT_MODE_MULTIPLE) || defined(MQTT_MODE_MIXED)
+    availability_topic = String(workgroup) + "/" + machineId
+        + "/status/" + sensor_id;
+#endif
+
+    Serial.println("Found " + sensor_id);
+
+#ifdef MQTT_MODE_MULTIPLE
+    client_id = compute_client_id((String("ds18b20-")
+                                   + String(next_id++)).c_str());
+
+    // This will establish a connection and publish the online status
+    // as a side effect.
+    client();
+#endif
+#ifdef MQTT_MODE_MIXED
+    publish_online();
+#endif
+    publish_discovery();
+}
+
+void ConnectedDS18B20::publish_discovery()
+{
+#ifdef HOME_ASSISTANT_DISCOVERY
+
+#ifdef MQTT_MODE_SINGLE
+    String availability_topic = String(workgroup) + "/" + machineId
+        + "/status/esp8266";
+#endif
+
+    publishSensorDiscovery("sensor",
+                           (String("ds18b20_") + hex_addr).c_str(),
+                           "temperature",
+                           (String("DS18B20 ") + hex_addr
+                            + String(" Temperature")).c_str(),
+                           topic.c_str(),
+                           "°C",
+                           "{{ value_json.temperature }}",
+                           availability_topic,
+                           client());
+
+#endif
+}
+
+
+#ifdef MQTT_MODE_MULTIPLE
+void ConnectedDS18B20::reconnect()
+{
+#if 0
+    // This code block can be useful for debugging, but it would print
+    // sensitive data (the password), so it is disabled by default.
+    Serial.print("DS18B20: client_id: ");
+    Serial.println(client_id);
+    Serial.print("DS18B20: mqtt_username: ");
+    Serial.println(mqtt_username());
+    Serial.print("DS18B20: mqtt_password: ");
+    Serial.println(mqtt_password());
+    Serial.print("DS18B20: availability_topic: ");
+    Serial.println(availability_topic);
+#endif
+
+    Serial.print("MQTT DS18B20 ");
+    Serial.print(hex_addr);
+    Serial.print(": ");
+
+    if (mqttClient.connect(client_id.c_str(),
+                           mqtt_username(), mqtt_password(),
+                           availability_topic.c_str(),
+                           0, 1, "offline"))
+    {
+        Serial.println("connection established");
+        publish_online();
+    }
+    else
+    {
+        Serial.print("failed, rc=");
+        Serial.println(mqttClient.state());
+    }
+}
+
+void ConnectedDS18B20::mqtt_loop()
+{
+    mqttClient.loop();
+}
+#endif
+
+PubSubClient *ConnectedDS18B20::client()
+{
+#ifdef MQTT_MODE_MULTIPLE
+    if (!mqttClient.connected())
+        reconnect();
+
+    return &mqttClient;
+#else
+    return mqtt_client(MQTT_ESP8266);
+#endif
+}
+
+void ConnectedDS18B20::handle_temp(float wtemp)
+{
+    float temp = convertTemperature(wtemp);
+    Serial.println("DS18B20 " + String(hex_addr) + ":" + temp);
+    publishSensorData(client(), topic.c_str(), "temperature", temp);
+}
+
+bool ConnectedDS18B20::same_addr(const uint8_t (&addr)[addr_size])
+{
+    return memcmp(raw_addr, &addr, sizeof raw_addr) == 0;
+}
+
+#if defined(MQTT_MODE_MULTIPLE) || defined(MQTT_MODE_MIXED)
+void ConnectedDS18B20::publish_online()
+{
+    client()->publish(availability_topic.c_str(), "online", true);
+}
+#endif
+
+#ifdef MQTT_MODE_MIXED
+void ConnectedDS18B20::publish_offline()
+{
+    client()->publish(availability_topic.c_str(), "offline", true);
+}
+#endif
+
+DS18B20Registry::DS18B20Registry()
+    : online(nullptr), unprobed(nullptr)
+{
+    last_online = &online;
+}
+
+bool DS18B20Registry::loop()
+{
+    unprobed = online;
+    online = nullptr;
+    last_online = &online;
+
+    sensors.requestTemperatures();
+
+    // Always probe for hot-plugged (or unplugged) sensors.
+    sensors.begin();
+
+    int count = sensors.getDeviceCount();
+
+    for (int ix = 0; ix < count; ix++)
+    {
+        uint8_t addr[ConnectedDS18B20::addr_size];
+
+        if (!sensors.getAddress(addr, ix))
+        {
+            Serial.println("Can't get address of DS18B20 " + String(ix));
+            continue;
+        }
+
+        float wtemp = sensors.getTempCByIndex(ix);
+        if (wtemp == DEVICE_DISCONNECTED_C)
+        {
+            Serial.println("Lost contact with DS18B20 " + String(ix));
+            continue;
+        }
+
+        ConnectedDS18B20 *dev = find_device(addr);
+        dev->handle_temp(wtemp);
+    }
+
+    while (unprobed != NULL)
+    {
+        ConnectedDS18B20 *next = unprobed->next;
+#ifdef MQTT_MODE_MIXED
+        // We only need to publish the offline status explicitly in
+        // MQTT_MODE_MIXED.  In MQTT_MODE_SINGLE, we don't provide an
+        // availability status.  In MQTT_MODE_MULTIPLE, the
+        // last-will-and-testament will cause the MQTT broker to
+        // publish the offline message when we close the TCP
+        // connection.
+        unprobed->publish_offline();
+#endif
+        delete unprobed;
+        unprobed = next;
+    }
+
+    return false;
+}
+
+void DS18B20Registry::mqtt_loop()
+{
+#ifdef MQTT_MODE_MULTIPLE
+    for (ConnectedDS18B20 *dev = online; dev != nullptr; dev = dev->next)
+        dev->mqtt_loop();
+#endif
+}
+
+ConnectedDS18B20 *DS18B20Registry::find_device(const uint8_t (&addr)[ConnectedDS18B20::addr_size])
+{
+    ConnectedDS18B20 **prev = &unprobed;
+
+    while (*prev)
+    {
+        ConnectedDS18B20 *tmp = *prev;
+
+        if (tmp->same_addr(addr))
+        {
+            // Unlink from "unprobed".
+            *prev = tmp->next;
+
+            // Append last in "online".
+            return append_online(tmp);
+        }
+
+        prev = &tmp->next;
+    }
+
+    // Create a new device, and append it to "online".
+    return append_online(new ConnectedDS18B20(addr));
+}
+
+#ifdef MQTT_MODE_MIXED
+// We have re-established connection with the MQTT broker.  Re-publish
+// all online statuses.
+void DS18B20Registry::mqtt_reconnected()
+{
+    for (ConnectedDS18B20 *node = online; node; node = node->next)
+        node->publish_online();
+}
+#endif
+
+ConnectedDS18B20 *DS18B20Registry::append_online(ConnectedDS18B20 *d)
+{
+    *last_online = d;
+    d->next = nullptr;
+    last_online = &d->next;
+    return d;
+}
+
+#endif
+
 // Returns true if we have computed something to be shown on the
 // display.
 bool handle_ds18b20()
 {
+#ifdef MULTI_DS18B20_SUPPORT
+    return ds18b20_registry.loop();
+#else
     int count = sensors.getDeviceCount();
     if (count <= 0)
         return false;
@@ -2317,6 +2741,7 @@ bool handle_ds18b20()
     sensor_line3 = "Water " + formatTemperature(dsTemperature);
     Serial.println(sensor_line3);
     return true;
+#endif
 }
 
 
@@ -2326,6 +2751,10 @@ void loop()
 
     for (int i = 0; i < MQTT_LAST; i++)
         mqtt_connections[i].mqttClient.loop();
+
+#if defined(MQTT_MODE_MULTIPLE) && defined(MULTI_DS18B20_SUPPORT)
+    ds18b20_registry.mqtt_loop();
+#endif
 
     // Reconnect if there is an issue with the MQTT connection
     const unsigned long mqttConnectionMillis = millis();
@@ -2420,8 +2849,10 @@ void loop()
         }
         else
         {
+#ifndef MULTI_DS18B20_SUPPORT
             mqtt_status(MQTT_DS18B20)->offline();
             sensors.begin(); // Probe for hotplugged DS18B20 sensor.
+#endif
 
             if (NONE != i2cSensorToShow)
             {
