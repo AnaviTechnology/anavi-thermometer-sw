@@ -598,14 +598,19 @@ MQTTConnection::MQTTConnection()
 {
 }
 
-void MQTTConnection::set_spec(const MQTTSpec *spec)
+String compute_client_id(const char *base)
 {
     String minId(machineId);
     if (minId.length() > 5)
     {
         minId = minId.substring(minId.length() - 5);
     }
-    client_id = String("anavi-") + minId + "-" + spec->topic;
+    return String("anavi-") + minId + "-" + base;
+}
+
+void MQTTConnection::set_spec(const MQTTSpec *spec)
+{
+    client_id = compute_client_id(spec->topic);
     Serial.println("set_spec client_id: " + client_id);
 }
 
