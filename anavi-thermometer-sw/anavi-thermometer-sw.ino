@@ -170,8 +170,26 @@
 // connections.
 // #define USE_MULTIPLE_MQTT
 
-#if defined(USE_MULTIPLE_MQTT) && !defined(USE_MULTIPLE_STATUS_TOPICS)
-#error USE_MULTIPLE_MQTT without USE_MULTIPLE_STATUS_TOPICS is not supported
+// Together, USE_MULTIPLE_STATUS_TOPICS and USE_MULTIPLE_MQTT defines
+// 3 valid modes (and 1 forbidden mode).  The code below uses the
+// MQTT_MODE_X defines to differentiate the selected mode.
+
+#undef MQTT_MODE_MULTIPLE  // N+N: Multiple connections and status topics
+#undef MQTT_MODE_MIXED     // 1+N: One connection, multiple status topics
+#undef MQTT_MODE_SINGLE    // 1+1: One connection, one status topic
+
+#ifdef USE_MULTIPLE_MQTT
+#  ifdef USE_MULTIPLE_STATUS_TOPICS
+#    define MQTT_MODE_MULTIPLE
+#  else
+#    error USE_MULTIPLE_MQTT without USE_MULTIPLE_STATUS_TOPICS is not supported
+#  endif
+#else
+#  ifdef USE_MULTIPLE_STATUS_TOPICS
+#    define MQTT_MODE_MIXED
+#  else
+#    define MQTT_MODE_SINGLE
+#  endif
 #endif
 
 // In the ANAVI Thermometer, GPIO12 is designed to be connected to the
@@ -409,7 +427,7 @@ enum MQTTName
     MQTT_HTU21D,
     MQTT_APDS9960,
     MQTT_BUTTON,
-#ifdef USE_MULTIPLE_MQTT
+#ifdef MQTT_MODE_MULTIPLE
     MQTT_LAST,
 #else
     MQTT_LAST_STATUS,
@@ -420,7 +438,7 @@ enum MQTTName
 class MQTTConnection;
 MQTTConnection *mqtt(MQTTName name);
 
-#ifndef USE_MULTIPLE_STATUS_TOPICS
+#ifdef MQTT_MODE_SINGLE
 void call_mqtt_connect_cbs(MQTTConnection *conn);
 #endif
 
@@ -429,7 +447,7 @@ struct MQTTSpec
     MQTTName name;
     const char *topic;
     void (*connect_cb)(MQTTConnection *);
-    bool ever_online; // Not used in USE_MULTIPLE_STATUS_TOPICS mode.
+    bool ever_online;           // Only used in MQTT_MODE_SINGLE
 };
 
 class MQTTStatus
@@ -485,7 +503,7 @@ void MQTTStatus::set_spec(const MQTTSpec *spec)
 
 void MQTTStatus::online(bool board)
 {
-#ifndef USE_MULTIPLE_STATUS_TOPICS
+#ifdef MQTT_MODE_SINGLE
     // If we use a single MQTT status topic, all the status indicators
     // except for the board itself (MQTT_ESP8266) are disabled.  For
     // simplicity, the online() notification for MQTT_ESP8266 also
@@ -495,7 +513,7 @@ void MQTTStatus::online(bool board)
         return;
 #endif
 
-#ifndef USE_MULTIPLE_MQTT
+#if defined(MQTT_MODE_SINGLE) || defined(MQTT_MODE_MIXED)
     if (!conn)
     {
         conn = mqtt(MQTT_ESP8266);
@@ -519,11 +537,11 @@ void MQTTStatus::online(bool board)
 
 void MQTTStatus::offline()
 {
-#ifdef USE_MULTIPLE_STATUS_TOPICS
+#if defined(MQTT_MODE_MULTIPLE) || defined(MQTT_MODE_MIXED)
 
     is_online = false;
 
-#ifndef USE_MULTIPLE_MQTT
+#ifdef MQTT_MODE_MIXED
     if (!conn)
         return;
 #endif
@@ -531,7 +549,8 @@ void MQTTStatus::offline()
     if (conn->requested)
         publish_online(false);
 
-#else
+#endif
+#ifdef MQTT_MODE_SINGLE
 
     // If we use a single MQTT status topic, we never publish offline
     // messages.  The offline message is only sent as a result of the
@@ -589,10 +608,11 @@ void MQTTConnection::reconnect()
     {
         Serial.println("connection established.");
 
-#if defined(USE_MULTIPLE_MQTT)
+#ifdef MQTT_MODE_MULTIPLE
         (*status_list->connect_cb)(this);
         status_list->publish_online(true);
-#elif defined(USE_MULTIPLE_STATUS_TOPICS)
+#endif
+#ifdef MQTT_MODE_MIXED
         MQTTStatus *status = status_list;
         while (status != NULL)
         {
@@ -600,7 +620,8 @@ void MQTTConnection::reconnect()
             status->publish_online(true);
             status = status->status_list;
         }
-#else
+#endif
+#ifdef MQTT_MODE_SINGLE
         call_mqtt_connect_cbs(this);
         status_list->publish_online(true);
 #endif
@@ -614,18 +635,20 @@ void MQTTConnection::reconnect()
 
 MQTTConnection mqtt_connections[MQTT_LAST];
 
-#if defined(USE_MULTIPLE_MQTT) == defined(USE_MULTIPLE_STATUS_TOPICS)
+#if defined(MQTT_MODE_MULTIPLE) || defined(MQTT_MODE_SINGLE)
 MQTTStatus mqtt_statuses[MQTT_LAST];
-#else
+#endif
+#if defined(MQTT_MODE_MIXED)
 MQTTStatus mqtt_statuses[MQTT_LAST_STATUS];
 #endif
 
-#ifdef USE_MULTIPLE_MQTT
+#if defined(MQTT_MODE_MULTIPLE)
 MQTTConnection *mqtt(MQTTName name)
 {
     return &mqtt_connections[name];
 }
-#else
+#endif
+#if defined(MQTT_MODE_MIXED) || defined(MQTT_MODE_SINGLE)
 MQTTConnection *mqtt(MQTTName name)
 {
     return &mqtt_connections[0];
@@ -637,12 +660,13 @@ PubSubClient *mqtt_client(MQTTName name)
     return &mqtt(name)->mqttClient;
 }
 
-#ifdef USE_MULTIPLE_STATUS_TOPICS
+#if defined(MQTT_MODE_MULTIPLE) || defined(MQTT_MODE_MIXED)
 MQTTStatus *mqtt_status(MQTTName name)
 {
     return &mqtt_statuses[name];
 }
-#else
+#endif
+#if defined(MQTT_MODE_SINGLE)
 MQTTStatus *mqtt_status(MQTTName name)
 {
     return &mqtt_statuses[0];
@@ -846,7 +870,7 @@ struct MQTTSpec mqtt_specs[] = {
     {MQTT_ESP8266, 0, 0, false}, // Sentinel used by call_mqtt_connect_cbs()
 };
 
-#ifndef USE_MULTIPLE_STATUS_TOPICS
+#ifdef MQTT_MODE_SINGLE
 void call_mqtt_connect_cbs(MQTTConnection *conn)
 {
     for (MQTTSpec *spec = mqtt_specs; spec->topic != 0; spec++)
@@ -1038,7 +1062,7 @@ void mqtt_online(MQTTName name, bool board = false)
 {
     mqtt_status(name)->online(board);
 
-#ifndef USE_MULTIPLE_STATUS_TOPICS
+#ifdef MQTT_MODE_SINGLE
     MQTTSpec *spec = &mqtt_specs[name];
     if (!spec->ever_online)
     {
@@ -1089,9 +1113,9 @@ void setup()
     Serial.begin(115200);
     Serial.println();
 
-#if defined(USE_MULTIPLE_MQTT)
+#if defined(MQTT_MODE_MULTIPLE)
     Serial.println("MQTT: N+N: Using multiple connections");
-#elif defined(USE_MULTIPLE_STATUS_TOPICS)
+#elif defined(MQTT_MODE_MIXED)
     Serial.println("MQTT: 1+N: Using single connection, multiple status topics");
 #else
     Serial.println("MQTT: 1+1: Using single connection, single status topic");
@@ -1446,7 +1470,7 @@ void setup_mqtt(const char *mqtt_server, const char *mqtt_port)
 #endif
     }
 
-#if defined(USE_MULTIPLE_STATUS_TOPICS) && !defined(USE_MULTIPLE_MQTT)
+#ifdef MQTT_MODE_MIXED
     for (int n = 1; mqtt_specs[n].topic != 0; n++)
     {
         mqtt_statuses[n].set_spec(&mqtt_specs[n]);
