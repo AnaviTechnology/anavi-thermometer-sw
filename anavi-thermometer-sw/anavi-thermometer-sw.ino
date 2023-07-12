@@ -2129,6 +2129,13 @@ bool publishSensorDiscovery(const char *component,
     Serial.print("Home Assistant discovery topic: ");
     Serial.println(topic);
 
+    return send_json_payload(topic, json, client);
+}
+
+bool send_json_payload(const char *topic,
+                       DynamicJsonDocument &json,
+                       PubSubClient *client)
+{
     int payload_len = measureJson(json);
     if (!client->beginPublish(topic, payload_len, true))
     {
