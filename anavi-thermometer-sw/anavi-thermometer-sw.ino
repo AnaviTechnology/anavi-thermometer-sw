@@ -2084,6 +2084,20 @@ bool publishSensorDiscovery(const char *component,
                                   mqtt_client(mqtt_name));
 }
 
+void set_device(DynamicJsonDocument &json)
+{
+    json["device"]["identifiers"] = machineId;
+    json["device"]["manufacturer"] = "ANAVI Technology";
+    json["device"]["model"] = PRODUCT;
+    json["device"]["name"] = String(ha_name) + " ANAVI Thermometer";
+    json["device"]["sw_version"] = ESP.getSketchMD5();
+
+    JsonArray connections = json["device"].createNestedArray("connections").createNestedArray();
+    connections.add("mac");
+    connections.add(WiFi.macAddress());
+}
+
+
 bool publishSensorDiscovery(const char *component,
                             const char *config_key,
                             const char *device_class,
@@ -2110,15 +2124,7 @@ bool publishSensorDiscovery(const char *component,
     json["value_template"] = value_template;
     json["availability_topic"] = availability_topic;
 
-    json["device"]["identifiers"] = machineId;
-    json["device"]["manufacturer"] = "ANAVI Technology";
-    json["device"]["model"] = PRODUCT;
-    json["device"]["name"] = String(ha_name) + " ANAVI Thermometer";
-    json["device"]["sw_version"] = ESP.getSketchMD5();
-
-    JsonArray connections = json["device"].createNestedArray("connections").createNestedArray();
-    connections.add("mac");
-    connections.add(WiFi.macAddress());
+    set_device(json);
 
     Serial.print("Home Assistant discovery topic: ");
     Serial.println(topic);
