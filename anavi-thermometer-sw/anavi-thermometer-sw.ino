@@ -40,7 +40,8 @@
 // | Topic             | Value                        | Requirement
 // | status/<sensor>   | "online" or "offline"        | USE_MULTIPLE_STATUS_TOPICS, USE_MULTIPLE_MQTT
 // | status/esp8266    | "online" or "offline"        | USE_MULTIPLE_STATUS_TOPICS
-// | button/1          | { "pressed": "ON" or "OFF" } | BUTTONSUPPORT
+// | button/1          | { "pressed": "ON" or "OFF" } | LEGACY_BUTTONSUPPORT
+// | button_1/action   | "button_short_press" et c    | BUTTONSUPPORT
 // | free-heap         | { "bytes": b }               | PUBLISH_FREE_HEAP
 // | BMPaltitude       | { "altitude": 72.3 }         | Requires sea-level-preassure to be set.
 // | BMPsea-level-pressure | { pressure: 1028.4 }     | Requires the altitude to be set
@@ -98,11 +99,6 @@
 //
 // This requires PubSubClient 2.7.
 #define HOME_ASSISTANT_DISCOVERY 1
-
-// Enable the logic for detection a button instead of DS18B20 sensor
-// By default it is disable due to a bug with detecting OneWire devices
-// after OneWire reset command.
-// #define BUTTONSUPPORT 1
 
 // By default, the code supports a single DS18B20 sensor.  It will
 // report its reading on the $WORKGROUP/$MACHINEID/water/temperature
@@ -300,7 +296,20 @@
 //
 // Whenever the switch is pressed (so that DATA is driven high), the
 // ANAVI Thermometer will publish an MQTT message to
-// $WORKGROUP/$MACHINEID/button/1 with the value
+// $WORKGROUP/$MACHINEID/button_1/action with one of the following
+// values, depending on how many times it is pressed in rapid
+// succession:
+//
+//     button_short_press
+//     button_double_press
+//     button_triple_press
+//     button_quadruple_press
+//     button_quintuple_press
+//     button_long_press
+//
+// If LEGACY_BUTTONSUPPORT is defined, it will additionally publish
+// messages on the $WORKGROUP/$MACHINEID/button/1 topic.  When the
+// button is pressed, it will send:
 //
 //     { "pressed": "ON" }
 //
@@ -308,14 +317,14 @@
 //
 //     { "pressed": "OFF" }
 //
-// The BUTTON_INTERVAL defines the minimum delay (in milliseconds)
-// between sending the above messages.  This serves two purposes:
-// ensure the button is debounced, and ensure the listener has time
-// to react to the message.
-//
 // The autodetection code only works if the button is not pressed
 // while the ANAVI Thermometer is started.
-#define BUTTON_INTERVAL 100
+//
+// Enable the logic for detection a button instead of DS18B20 sensor.
+// By default it is disable due to reported issues with detecting
+// OneWire devices after OneWire reset command.
+#undef BUTTONSUPPORT
+#define LEGACY_BUTTONSUPPORT
 
 // By default, you can perform a factory reset on the ANAVI
 // Thermometer in a few ways:
@@ -405,8 +414,43 @@ unsigned long sensorPreviousMillis = 0;
 const long sensorInterval = 10000;
 
 bool haveButton = false;
-bool buttonState = false;
-unsigned long buttonPreviousMillis = 0;
+
+class ButtonState
+{
+private:
+    // The very first poll needs some extra processing.
+    bool first;
+
+    // Number of seen short presses in the current sequence.
+    int short_presses;
+
+    // We are waiting for a long press to be terminated.
+    bool long_press_release;
+
+    // When to poll the button next.
+    unsigned long next_poll;
+
+    // Last time we saw a state change of the button.
+    unsigned long last_change;
+
+    // The state at the last change.
+    bool was_pressed;
+
+    // Configuration: how long to wait after a flank.
+    unsigned long debounce_millis;
+
+    // Configuration: if the button is pressed for longer than this,
+    // it is considered a long press.
+    unsigned long max_short_millis;
+
+    void button_event(const char *event);
+public:
+    ButtonState();
+
+    void loop(unsigned long millis);
+};
+
+ButtonState button_state = ButtonState();
 
 unsigned long mqttConnectionPreviousMillis = millis();
 const long mqttConnectionInterval = 60000;
@@ -895,6 +939,8 @@ MQTTStatus *mqtt_status(MQTTName name)
 }
 #endif
 
+String button_1_topic;
+
 #ifdef OTA_UPGRADES
 char cmnd_update_topic[12 + sizeof(machineId)];
 #endif
@@ -1070,10 +1116,33 @@ void mqtt_apds9960_connected(MQTTConnection *c)
     // FIXME: Add SensorDiscovery for this sensor!
 }
 
+#ifdef HOME_ASSISTANT_DISCOVERY
+void add_trigger_discovery(String topic,
+                           const char *subtype,
+                           const char *type)
+{
+    static char cfg_topic[80 + sizeof(machineId)];
+    snprintf(cfg_topic, sizeof(cfg_topic),
+             "homeassistant/device_automation/%s/%s-%s/config",
+             machineId, subtype, type);
+
+    DynamicJsonDocument json(1024);
+    json["automation_type"] = "trigger";
+    json["type"] = type;
+    json["subtype"] = subtype;
+    json["topic"] = topic;
+    json["payload"] = type;
+    set_device(json);
+
+    send_json_payload(cfg_topic, json, mqtt_client(MQTT_BUTTON));
+}
+#endif
+
 void mqtt_button_connected(MQTTConnection *c)
 {
 #ifdef HOME_ASSISTANT_DISCOVERY
 
+#ifdef LEGACY_BUTTONSUPPORT
     publishSensorDiscovery("binary_sensor",
                            "button",
                            0,
@@ -1082,6 +1151,14 @@ void mqtt_button_connected(MQTTConnection *c)
                            0,
                            "{{ value_json.pressed }}",
                            MQTT_BUTTON);
+#endif
+
+    add_trigger_discovery(button_1_topic, "button_1", "button_short_press");
+    add_trigger_discovery(button_1_topic, "button_1", "button_double_press");
+    add_trigger_discovery(button_1_topic, "button_1", "button_triple_press");
+    add_trigger_discovery(button_1_topic, "button_1", "button_quadruple_press");
+    add_trigger_discovery(button_1_topic, "button_1", "button_quintuple_press");
+    add_trigger_discovery(button_1_topic, "button_1", "button_long_press");
 #endif
 }
 
@@ -1318,7 +1395,8 @@ void initOneWireSensors()
         if (false == digitalRead(ONE_WIRE_BUS))
         {
             haveButton = true;
-            buttonPreviousMillis = millis();
+            button_1_topic = String(workgroup)
+                + "/" + machineId + "/button_1/action";
         }
         else
         {
@@ -1345,6 +1423,9 @@ void setup()
     Serial.begin(115200);
     Serial.println();
 
+    // Machine ID
+    calculateMachineId();
+
 #if defined(MQTT_MODE_MULTIPLE)
     Serial.println("MQTT: N+N: Using multiple connections");
 #elif defined(MQTT_MODE_MIXED)
@@ -1369,9 +1450,6 @@ void setup()
     pinMode(pinButton, INPUT);
 
     waitForFactoryReset();
-
-    // Machine ID
-    calculateMachineId();
 
     // read configuration from FS json
     Serial.println("mounting FS...");
@@ -2455,18 +2533,7 @@ void setDefaultSensorLines()
     Serial.println(sensor_line1);
     sensor_line2 = "Humidity " + String(dhtHumidity, 0) + "%";
     Serial.println(sensor_line2);
-    if (haveButton)
-        displayButton();
-    else
-        sensor_line3 = "";
-}
-
-void displayButton()
-{
-    if (buttonState)
-        sensor_line3 = "Button: ON";
-    else
-        sensor_line3 = "Button: OFF";
+    sensor_line3 = "";
 }
 
 // Update the uptime information.
@@ -2871,21 +2938,10 @@ void loop()
     const unsigned long currentMillis = millis();
 
     // Handle button presses at a shorter interval
-    if (haveButton && BUTTON_INTERVAL <= (currentMillis - buttonPreviousMillis))
+    if (haveButton)
     {
         mqtt_online(MQTT_BUTTON);
-
-        bool currentState = digitalRead(ONE_WIRE_BUS);
-
-        if (buttonState != currentState)
-        {
-            buttonState = currentState;
-            publishSensorData(MQTT_BUTTON, "button/1", "pressed",
-                              currentState ? "ON" : "OFF");
-            buttonPreviousMillis = currentMillis;
-            displayButton();
-            need_redraw = true;
-        }
+        button_state.loop(currentMillis);
     }
 
     if (sensorInterval <= (currentMillis - sensorPreviousMillis))
@@ -2936,7 +2992,6 @@ void loop()
 
         if (haveButton)
         {
-            displayButton();
         }
         else if (handle_ds18b20())
         {
@@ -3002,4 +3057,112 @@ void loop()
 
     // Short sleep to reduce power consumption
     delay(1);
+}
+
+ButtonState::ButtonState()
+    : first(true),
+      short_presses(0),
+      next_poll(0),
+      last_change(0),
+      was_pressed(false),
+      debounce_millis(20),
+      max_short_millis(400)
+{
+}
+
+void ButtonState::loop(unsigned long millis)
+{
+    if (first)
+    {
+        next_poll = millis;
+        last_change = millis;
+        was_pressed = false;
+        first = false;
+    }
+
+    if (millis - next_poll > LONG_MAX)
+        return;
+
+    bool is_pressed = digitalRead(ONE_WIRE_BUS);
+
+#ifdef LEGACY_BUTTONSUPPORT
+    if (is_pressed != was_pressed)
+    {
+        publishSensorData(MQTT_BUTTON, "button/1", "pressed",
+                          is_pressed ? "ON" : "OFF");
+    }
+#endif
+
+    if (long_press_release)
+    {
+        if (!is_pressed)
+        {
+            last_change = millis;
+            long_press_release = false;
+        }
+
+        next_poll = millis + debounce_millis;
+        was_pressed = is_pressed;
+        return;
+    }
+
+    if (!was_pressed && !is_pressed && short_presses == 0)
+    {
+        next_poll = millis + 10;
+        return;
+    }
+
+    if (was_pressed && is_pressed && millis - last_change > max_short_millis)
+    {
+        button_event("button_long_press");
+        long_press_release = true;
+    }
+
+    if (is_pressed != was_pressed)
+    {
+        if (is_pressed)
+        {
+            short_presses++;
+
+            switch (short_presses)
+            {
+            default:
+                // Let's cycle over.
+                short_presses = 1;
+                // FALLTHROUGH
+            case 1:
+                button_event("button_short_press");
+                break;
+            case 2:
+                button_event("button_double_press");
+                break;
+            case 3:
+                button_event("button_triple_press");
+                break;
+            case 4:
+                button_event("button_quadruple_press");
+                break;
+            case 5:
+                button_event("button_quintuple_press");
+                break;
+            }
+        }
+
+        last_change = millis;
+        was_pressed = is_pressed;
+        next_poll = millis + debounce_millis;
+        return;
+    }
+
+    if (!is_pressed && millis - last_change > max_short_millis)
+    {
+        short_presses = 0;
+    }
+
+    next_poll = millis + 10;
+}
+
+void ButtonState::button_event(const char *event)
+{
+    mqtt_client(MQTT_BUTTON)->publish(button_1_topic.c_str(), event, false);
 }
