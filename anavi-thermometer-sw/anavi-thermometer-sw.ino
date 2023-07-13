@@ -2105,6 +2105,9 @@ bool publishSensorDiscovery(const char *component,
     json["name"] = String(ha_name) + " " + name_suffix;
     json["unique_id"] = String("anavi-") + machineId + "-" + config_key;
     json["state_topic"] = String(workgroup) + "/" + machineId + "/" + state_topic;
+    if (strcmp(component, "sensor") == 0)
+        json["state_class"] = "measurement";
+
     if (unit)
         json["unit_of_measurement"] = unit;
     json["value_template"] = value_template;
