@@ -1341,11 +1341,13 @@ private:
     bool inverted;
     int screens[10];
     int current_screen[10];
+    int current_saver;
     int default_program;
     String program;
     const char *draw(const char *cmd);
     void set_active();
     void display_string(String s);
+    void prevent_burn_in();
     void display_temperature(float temp);
     String fragments[10];
     static const char *builtin_programs[];
@@ -1436,17 +1438,20 @@ const char *Grapher::builtin_programs[] = {
     ";"
     ";",
 
-    // 1: Big temperature.
+    // 1: Big temperature, prevent burn in by inverting the display
+    // half the time.
     "C0f1h[Humidity ]11?11V:[-];"
-    "3h2f10?1,10V:[-];",
+    "3h2f10?1,10V:[-];"
+    "B",
 
-    // 2: Display "everything".
+    // 2: Display "everything", prevent burn in.
     // Line 1: Air/Humidity/Water
     // Line 2: Baro/Light
     // Line 3: UTC/WiFi
     "C1h1,0{[Air ]10?10V:[-];}1,1{[Humidity ]11?11V:[-];}14?1,-1{[Water ]14V};"
     "2h12?2,-1{[Baro ]12V[ hPa]};13?2,-1{[Light ]13V[ lx]};"
-    "3h3,0{[UTC ]15V}3,1{[WiFi ]16V[ dBm]}",
+    "3h3,0{[UTC ]15V}3,1{[WiFi ]16V[ dBm]}"
+    "B",
 
     // 3: Screen test: blank screen.
     "C",
@@ -1454,15 +1459,15 @@ const char *Grapher::builtin_programs[] = {
     // 4: Screen test: fully on screen.
     "C32(>127.v.<127.v.)",
 
-    // 5: Screen test: turn on every other pixel.
-    "C32(>63( .) v.<63( .) v.)",
+    // 5: Screen test: turn on every other pixel, prevent burn in.
+    "C32(>63( .) v.<63( .) v.)B",
 };
 
 
 
 
 Grapher::Grapher()
-    : default_program(0)
+    : current_saver(0), default_program(0)
 {
     for (int ix = 0; ix < 10; ix++)
     {
@@ -1503,6 +1508,7 @@ void Grapher::set_fragment(int frag_nr, const char *fragment)
 void Grapher::reset_display()
 {
     need_redraw = true;
+    current_saver = 0;
     set_invert(false);
     for (int ix = 0; ix < 10; ix++)
     {
@@ -2034,6 +2040,10 @@ const char *Grapher::draw(const char *cmd)
                 if (active)
                     set_invert(!!arg);
                 break;
+
+            case 'B':
+                prevent_burn_in();
+                break;
             }
 
             arg = 0;
@@ -2045,6 +2055,75 @@ const char *Grapher::draw(const char *cmd)
 
     return cmd;
 }
+
+void Grapher::prevent_burn_in()
+{
+    // Invert the display half the time to prevent screen
+    // burn-in.  If you use the '{' command, it will look
+    // at the number of screens you have, and only invert
+    // the screen so that every screen is inverted half
+    // the time.  So if screen set 1 has 3 screens, and
+    // screen set 2 has 5 screens, it will use normal mode
+    // for 15 screens, then inverted mode for 15 screens.
+    // If you don't use '{', or if all screen sets have 2
+    // screens, this command will toggle the screen
+    // inversion on every updated.
+    //
+    // Screensets with more than 9 screens are ignored
+    // when computing how often the screen should be
+    // toggled.
+    //
+    // Note: if you use many screens with long series, you can in
+    // worst case end up with a cycle lenght of 9 * 8 * 7 * 5 = 2520.
+    // Assuming each cycle is exactly 10 seconds long, this is 4 hours
+    // and 12 minutes until the display becomes inverted.
+
+    // Bitmask of cycle lengths found among the screen sets.
+    // Factor value     Cycle length
+    //       1               2
+    //       2               3
+    //       4               4
+    //       8               5
+    //      16               6
+    //      32               7
+    //      64               8
+    //     128               9
+    int factors = 0;
+    for (int ix = 0; ix < 10; ix++)
+    {
+        int len = screens[ix] + 1;
+        if (len >= 2 && len < 10)
+            factors |= 1 << (len - 2);
+    }
+
+    // Split 6 to 2 * 3.
+    if (factors & 16)
+        factors = (factors | 3) & ~16;
+
+    // Remove redundant factors.
+    if ((factors & 128) && (factors & 2)) // If both 9 and 3 are set,
+        factors &= ~2;                    // remove 3.
+
+    if ((factors & 64) && (factors & 5)) // If both 8 and 4 and/or 2 are set,
+        factors &= ~5;                   // remove 4 and 2.
+
+    if ((factors & 4) && (factors & 1)) // If both 4 and 2 are set,
+        factors &= ~1;                  // remove 2.
+
+    int cycles = 1;
+    for (int len = 2; len < 10; len++)
+        if (factors & (1 << (len - 2)))
+            cycles *= len;
+
+    if (current_saver < cycles)
+        set_invert(false);
+    else
+        set_invert(true);
+
+    if (++current_saver >= 2 * cycles)
+        current_saver = 0;
+}
+
 
 void Grapher::display_temperature(float temp)
 {

@@ -71,6 +71,7 @@ arguments to the command.  They default to 0 unless otherwise noted.
 | *N*`c` | Set the contrast.  See `U8g2.setContrast`.
 | *N*`P` | Enable powersave mode if *N* is positive, disable if 0. |
 | *N*`i` | Invert the display if *N* is positive. |
+| `B` | Enable burn-in protection by sometimes inverting the screen. |
 | *N*`V` | Display the value of sensor *N*. |
 | *N*`E` | Interpret a user-defined value as a format string. |
 | *M*,*N*`{`...`}` | Alternate screen.  See below. |
