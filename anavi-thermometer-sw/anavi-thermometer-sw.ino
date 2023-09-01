@@ -17,13 +17,17 @@
 // | Command            | Args      |
 // | sea-level-pressure | float     |
 // | altitude           | meters    |
-// | line1              | string    |
-// | line2              | string    |
-// | line3              | string    |
+// | line1              | string    | (sets user-defined value 0)
+// | line2              | string    | (sets user-defined value 1)
+// | line3              | string    | (sets user-defined value 2)
+// | value/N            | { "v": "string" } or { "ds18b20": "id", "include-unit": true } |
+// | graph/N            | string    |
+// | display            | int       |
 // | tempcoef           | float     |
 // | water/tempoef      | float     |
 // | tempformat         | { "scale": "celsius" or "fahrenheit" } |
 // | restart            | (ignored) |
+// | graph              | string    |
 //
 // Some commands are only available if a certain symbol was defined
 // when the sketch was compiled:
@@ -526,7 +530,6 @@ enum i2cSensorDetected
     BH = 2,
     BOTH = 3
 };
-i2cSensorDetected i2cSensorToShow = NONE;
 
 // define your default values here, if there are different values in config.json, they are overwritten.
 char mqtt_server[40] = "mqtt.eclipseprojects.io";
@@ -780,9 +783,7 @@ public:
     // actually present on one of two lists.)
     ConnectedDS18B20 *next;
 
-#ifdef MQTT_MODE_MIXED
     void publish_offline();
-#endif
 #if defined(MQTT_MODE_MULTIPLE) || defined(MQTT_MODE_MIXED)
     void publish_online();
 #endif
@@ -794,6 +795,7 @@ public:
     ConnectedDS18B20(const uint8_t *addr);
     void handle_temp(float wtemp);
     bool same_addr(const uint8_t (&addr)[addr_size]);
+    bool same_addr(const String &addr);
     void publish_discovery();
 private:
     static int next_id;
@@ -825,10 +827,10 @@ public:
     void mqtt_reconnected();
 #endif
 
-private:
     // A linked list of all connected devices.
     ConnectedDS18B20 *online;
 
+private:
     // This points to the last entry on the online list, so that we
     // can quickly append a new node without traversing the entire
     // linked list.
@@ -957,21 +959,14 @@ char cmnd_altitude_topic[5 + 9 + sizeof(machineId)];
 char line1_topic[11 + sizeof(machineId)];
 char line2_topic[11 + sizeof(machineId)];
 char line3_topic[11 + sizeof(machineId)];
+char display_topic[13 + sizeof(machineId)];
+char graph_topic[13 + sizeof(machineId)];
+char value_topic[13 + sizeof(machineId)];
 char cmnd_temp_coefficient_topic[14 + sizeof(machineId)];
 #ifndef MULTI_DS18B20_SUPPORT
 char cmnd_ds_temp_coefficient_topic[20 + sizeof(machineId)];
 #endif
 char cmnd_temp_format[16 + sizeof(machineId)];
-
-// The display can fit 26 "i":s on a single line.  It will fit even
-// less of other characters.
-char mqtt_line1[26 + 1];
-char mqtt_line2[26 + 1];
-char mqtt_line3[26 + 1];
-
-String sensor_line1;
-String sensor_line2;
-String sensor_line3;
 
 bool need_redraw = false;
 
@@ -1003,6 +998,9 @@ void mqtt_esp8266_connected(MQTTConnection *c)
     c->mqttClient.subscribe(line1_topic);
     c->mqttClient.subscribe(line2_topic);
     c->mqttClient.subscribe(line3_topic);
+    c->mqttClient.subscribe(display_topic);
+    c->mqttClient.subscribe(graph_topic);
+    c->mqttClient.subscribe(value_topic);
 #ifdef OTA_UPGRADES
     c->mqttClient.subscribe(cmnd_update_topic);
 #endif
@@ -1219,6 +1217,862 @@ void drawDisplay(const char *line1, const char *line2 = "", const char *line3 = 
     u8g2.sendBuffer();
 }
 
+class Value
+{
+protected:
+    bool set;
+
+public:
+    Value() : set(false) { };
+    bool available() const { return set; }
+    void unset() { set = false; }
+    virtual String value(int arg2) = 0;
+};
+
+class TemperatureValue : public Value
+{
+private:
+    float raw_temp;
+
+public:
+    TemperatureValue() : Value() { }
+
+    String value(int arg2) {
+        if (!set)
+            return "";
+        else if (arg2)
+            return String(convertTemperature(raw_temp), 1);
+        else
+            return formatTemperature(raw_temp);
+    }
+
+    void set_value(float t) {
+        raw_temp = t;
+        set = true;
+    }
+};
+
+class StringValue : public Value
+{
+private:
+    String v;
+
+public:
+    StringValue() : Value() { }
+    String value(int arg2) { return set ? v : ""; }
+    void set_value(const String &val) {
+        v = val;
+        set = true;
+    }
+};
+
+class CurrentTimeValue : public Value
+{
+public:
+    CurrentTimeValue() : Value() { set = true; }
+    String value(int arg2) {
+        timeClient.update();
+        return timeClient.getFormattedTime();
+    }
+};
+
+class CurrentRSSIValue : public Value
+{
+public:
+    CurrentRSSIValue() : Value() { set = true; }
+    String value(int arg2) {
+        return String(WiFi.RSSI());
+    }
+};
+
+StringValue udv0 = StringValue(); // User-defined value 0
+StringValue udv1 = StringValue(); // ...
+StringValue udv2 = StringValue();
+StringValue udv3 = StringValue();
+StringValue udv4 = StringValue();
+StringValue udv5 = StringValue();
+StringValue udv6 = StringValue();
+StringValue udv7 = StringValue();
+StringValue udv8 = StringValue();
+StringValue udv9 = StringValue(); // User-defined value 9
+TemperatureValue dht22_temp = TemperatureValue();
+StringValue dht22_humidity = StringValue();
+StringValue bmp180_pressure = StringValue();
+StringValue bh1750_light = StringValue();
+TemperatureValue ds18b20_temp = TemperatureValue();
+CurrentTimeValue current_time = CurrentTimeValue();
+CurrentRSSIValue current_rssi = CurrentRSSIValue();
+
+
+Value *builtin_value[] = {
+    &udv0,                      // User-defined value 0
+    &udv1,                      // User-defined value 1
+    &udv2,                      // User-defined value 2
+    &udv3,                      // User-defined value 3
+    &udv4,                      // User-defined value 4
+    &udv5,                      // User-defined value 5
+    &udv6,                      // User-defined value 6
+    &udv7,                      // User-defined value 7
+    &udv8,                      // User-defined value 8
+    &udv9,                      // User-defined value 9
+    &dht22_temp,                // 10: DHT22 temperature
+    &dht22_humidity,            // 11: DHT22 humidity
+    &bmp180_pressure,           // 12: BMP180 barometric pressure
+    &bh1750_light,              // 13: BH1750 ambient light
+    &ds18b20_temp,              // 14: DS18B20 temperature (not in
+                                // MULTI_DS18B20_SUPPORT mode)
+    &current_time,              // 15: Current time (in UTC)
+    &current_rssi,              // 16: Current RSSI value
+};
+
+#define ARRAY_SIZZE(x) (sizeof(x) / sizeof(x[0]))
+
+class Grapher
+{
+private:
+    int x;
+    int y;
+    int dx;
+    int dy;
+    bool screen_active;
+    bool cond_active;
+    bool cond_disabled;
+    bool active;
+    int screens[10];
+    int current_screen[10];
+    int default_program;
+    String program;
+    const char *draw(const char *cmd);
+    void set_active();
+    void display_string(String s);
+    void display_temperature(float temp);
+    String fragments[10];
+    static const char *builtin_programs[];
+    void reset_display();
+
+public:
+    Grapher();
+
+    void set_fragment(int frag_nr, const char *fragment);
+    void set_default_program(int prog);
+    void draw();
+    void cycle_screen();
+};
+
+const char *Grapher::builtin_programs[] = {
+    // 0: Compat with the old defaults.  The old defaults are a bit
+    // complex.  It will display 3 lines of text.  By default, the
+    // display will contain something like:
+    //
+    //     Air 19.2°C
+    //     Humidity 52%
+    //     <a blank line>
+    //
+    // If the user-defined values 0, 1 or 2 are set, they will
+    // override the first, second and third lines, respectively.  (The
+    // obsolete MQTT commands "cmnd/%s/line1", "cmnd/%s/line2" and
+    // "cmnd/%s/line3" can be used to set these values, but
+    // "cmnd/%s/value/+" is the more modern way to define these
+    // values.)
+    //
+    // If a DS18B20 sensor is connected and MULTI_DS18B20_SUPPORT
+    // isn't defined, line 3 will look like:
+    //
+    //     Water 20.1°C
+    //
+    // If a BMP180 sensor is connected, line 3 will look like:
+    //
+    //     Baro 1013 hPa
+    //
+    // If a BH1750 sensor is connected, line 3 will look like:
+    //
+    //     Light 123 lx
+    //
+    // If both are connected, line 3 will alternate between the two
+    // formats above.  If neither is connected, line 3 will alternate
+    // between these two formats:
+    //
+    //     UTC: 22:43:23
+    //     WiFi: -58 dBm
+    //
+    // So, line 3 will contain the first of these that can be
+    // displayed:
+    //
+    //     User-defined value 2
+    //     Water
+    //     Baro and/or Light
+    //     UTC and WiFi
+
+    // First line: user-defined value 0 or Air.
+    "C1h0?0V:4HAir 10V;"
+
+    // Second line: user-defined value 1 or Humidity.
+    "2h1?1V:9HHumidity 11V1H%;"
+
+    // Third line: prio 1: user-defined value 2.
+    "3h"
+    "2?2V:"
+    // Prio 2: water.
+    "14?6HWater 14V:"
+    // Prio 3: Baro and/or Light
+    "12,13?"
+    // We have baro and/or light.
+    "12?"
+    // We have baro (and perhaps light)
+    "13?"
+    // We have both baro and light.
+    "0{5HBaro 12V4H hPa}"
+    "1{6HLight 13V3H lx}:"
+    // We have only baro
+    "5HBaro 12V4H hPa;"
+    ":"
+    // We have light (but not baro)
+    "6HLight 13V3H lx;"
+    ":"
+    // Prio 4: UTC and WiFi
+    "0{4HUTC 15V}1{5HWiFi 16V4H dBm};"
+    ";"
+    ";",
+
+    // 1: Big temperature.
+    "C0f1h9HHumidity 11V"
+    "3h2f1,10V",
+
+    // 2: Display "everything".
+    // Line 1: Air/Humidity/Water
+    // Line 2: Baro/Light
+    // Line 3: UTC/WiFi
+    "C1h1,0{4HAir 10V}1,1{9HHumidity 11V}14?1,-1{6HWater 14V};"
+    "2h12?2,-1{5HBaro 12V4H hPa};13?2,-1{6HLight 13V3H lx};"
+    "3h3,0{4HUTC 15V}3,1{5HWiFi 16V4H dBm}",
+
+    // 3: Screen test: blank screen.
+    "C",
+
+    // 4: Screen test: fully on screen.
+    "C32(>127.v.<127.v.)",
+
+    // 5: Screen test: turn on every other pixel.
+    "C32(>63( .) v.<63( .) v.)",
+};
+
+
+
+
+Grapher::Grapher()
+    : default_program(0)
+{
+    for (int ix = 0; ix < 10; ix++)
+    {
+        fragments[ix] = String();
+        screens[ix] = -1;
+        current_screen[ix] = 0;
+    }
+
+    program = String();
+}
+
+void Grapher::set_fragment(int frag_nr, const char *fragment)
+{
+    fragments[frag_nr] = String(fragment);
+    program = fragments[0]
+        + fragments[1]
+        + fragments[2]
+        + fragments[3]
+        + fragments[4]
+        + fragments[5]
+        + fragments[6]
+        + fragments[7]
+        + fragments[8]
+        + fragments[9];
+    reset_display();
+}
+
+
+void Grapher::reset_display()
+{
+    need_redraw = true;
+    for (int ix = 0; ix < 10; ix++)
+    {
+        screens[ix] = -1;
+        current_screen[ix] = 0;
+    }
+}
+
+void Grapher::set_default_program(int prog)
+{
+    if (prog >= 0 && prog < ARRAY_SIZZE(builtin_programs))
+    {
+        default_program = prog;
+        if (program.length() == 0)
+            reset_display();
+    }
+}
+
+void Grapher::draw()
+{
+    // In order for dynamic screen allocation ("-1S") to work, we need
+    // to reset the screens each time we start to interpret the
+    // program.  (We don't reset current_screens, of course.)
+    for (int ix = 0; ix < 10; ix++)
+        screens[ix] = -1;
+
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_ncenR14_tr);
+
+    // Home position.
+    x = 0;
+    y = 0;
+
+    // Default direction: right.
+    dx = 1;
+    dy = 0;
+
+    // We start out active, and move to the next screen on each
+    // re-draw.  See the "{" and "?" commands.
+    screen_active = true;
+    cond_active = true;
+    cond_disabled = false;
+    set_active();
+
+    // Render the template.
+    if (program.length() > 0)
+        draw(program.c_str());
+    else
+        draw(builtin_programs[default_program]);
+
+    u8g2.sendBuffer();
+}
+
+void Grapher::cycle_screen()
+{
+    for (int ix = 0; ix < 10; ix++)
+    {
+        current_screen[ix]++;
+        if (current_screen[ix] > screens[ix])
+            current_screen[ix] = 0;
+    }
+}
+
+
+void Grapher::set_active()
+{
+    active = screen_active && cond_active && !cond_disabled;
+}
+
+const char *Grapher::draw(const char *cmd)
+{
+    int arg = 0;
+    int arg2 = 0;
+    int sign = 1;
+    bool have_arg2 = false;
+
+    while (*cmd)
+    {
+        if (*cmd >= '0' && *cmd <= '9')
+        {
+            arg = 10 * arg + *cmd++ - '0';
+        }
+        else if (*cmd == '-')
+        {
+            sign = -sign;
+            cmd++;
+        }
+        else if (*cmd == ',')
+        {
+            arg2 = sign * arg;
+            have_arg2 = true;
+            arg = 0;
+            sign = 1;
+            cmd++;
+        }
+        else
+        {
+            arg = sign * arg;
+            sign = 1;
+
+            switch (*cmd++)
+            {
+            case '(':
+                // Draw a string within parens N times.  For example,
+                // "5(. )" would produce a dotted line, 10 pixels
+                // long.
+                {
+                    const char *end = cmd;
+
+                    if (arg < 1)
+                        arg = 1;
+
+                    // Recursively draw the string until the end
+                    // marker (or end-of-string).
+                    for (int ix = 0; ix < arg; ix++)
+                        end = draw(cmd);
+
+                    cmd = end;
+                }
+                break;
+
+            case ')':           // End a repetition group.
+            case ';':           // End conditional rendering.
+            case '}':           // End screen rendering.
+                return cmd;
+
+            case 'f':
+                // Font selection.
+                if (active)
+                {
+                    switch (arg)
+                    {
+                    case 0:
+                        u8g2.setFont(u8g2_font_ncenR14_tr);
+                        break;
+
+                    case 1:
+                        u8g2.setFont(u8g2_font_ncenB24_tr);
+                        break;
+
+                    case 2:
+                        u8g2.setFont(u8g2_font_logisoso46_tr);
+                        break;
+                    }
+                }
+
+                break;
+
+            case 'H':
+                // Print a hollerith-encoded string.
+                // "5Hxyzzy" prints "xyzzy".
+                {
+                    char s[arg + 1];
+                    int ix = 0;
+                    for (; ix < arg && *cmd; ix++)
+                        s[ix] = *cmd++;
+                    s[ix] = '\0';
+                    if (active)
+                        x += u8g2.drawStr(x, y, s);
+                    break;
+                }
+
+            case 'x':
+                // Set x coordinate.
+                if (active)
+                    x = arg;
+                break;
+
+            case 'y':
+                // Set y coordinate.
+                if (active)
+                    y = arg;
+                break;
+
+            case 'X':
+                // Set x delta.  Used by '.' and ' ' commands.
+                if (active)
+                    dx = arg;
+                break;
+
+            case 'Y':
+                // Set y delta.  Used by '.' and ' ' commands.
+                if (active)
+                    dy = arg;
+                break;
+
+            case '<':
+                // Set drawing direction to the left.
+                if (active)
+                {
+                    dx = -1;
+                    dy = 0;
+                }
+                break;
+
+            case '>':
+                // Set drawing direction to the right.
+                if (active)
+                {
+                    dx = 1;
+                    dy = 0;
+                }
+                break;
+
+            case '^':
+                // Set drawing direction up.
+                if (active)
+                {
+                    dx = 0;
+                    dy = -1;
+                }
+                break;
+
+            case 'v':
+                // Set drawing direction down.
+                if (active)
+                {
+                    dx = 0;
+                    dy = 1;
+                }
+                break;
+
+            case '.':
+                // Draw N dots in the current drawing direction.
+                if (!arg)
+                    arg = 1;
+
+                if (active)
+                {
+                    for (int ix = 0; ix < arg; ix++)
+                    {
+                        u8g2.drawPixel(x, y);
+                        x += dx;
+                        y += dy;
+                    }
+                }
+                break;
+
+            case 'b':
+                // Move N pixels backwards (opposite to the current
+                // drawing direction).
+                if (!arg)
+                    arg = 1;
+                arg = -arg;
+                /* FALLTHROUGH */
+            case ' ':
+                // Move N pixels forwards in the drawing direction.
+                if (!arg)
+                    arg = 1;
+
+                if (active)
+                {
+                    x += arg * dx;
+                    y += arg * dy;
+                }
+                break;
+
+            case 'C':
+                // Clear the display and move to the home position.
+                if (active)
+                {
+                    u8g2.clearBuffer();
+                    u8g2.setFont(u8g2_font_ncenR14_tr);
+                }
+                /* FALLTHROUGH */
+            case 'h':
+                // Move to the home position.
+                //
+                // "h" or "0h": Move to top left corner.  Note: if you
+                //       try to write text in this position, it will
+                //       be displayed above the display area, so you
+                //       won't see anyting.
+                // "1h": Move to (0, 14), suitable for the topmost
+                //       line if font 0 is used.
+                // "2h": Move to (0, 39), suitable for the middle
+                //       line if font 0 is used.
+                // "3h": Move to (0, 60), suitable for the bottom
+                //       line.
+                if (active)
+                {
+                    x = 0;
+                    switch (arg)
+                    {
+                    case 1:
+                        y = 14;
+                        break;
+                    case 2:
+                        y = 39;
+                        break;
+                    case 3:
+                        y = 60;
+                        break;
+                    default:
+                        y = 0;
+                        break;
+                    }
+
+                    dx = 1;
+                    dy = 0;
+                }
+                break;
+
+            case 'c':
+                // Set the contrast.
+                if (active)
+                    u8g2.setContrast(arg);
+                break;
+
+            case 'P':
+                // Set the powersave mode.
+                if (active)
+                    u8g2.setPowerSave(!!arg);
+                break;
+
+            case 'V':
+                // Display current values.
+                //
+                // "0V" or "V" -- display user-defined value 0.
+                // "1V" -- display user-defined value 1.
+                // ...
+                // "9V" -- display user-defined value 9.
+                // "10V" -- display the DHT22 temperature
+                // "11V" -- display the DHT22 humidity
+                // "12V" -- display the BMP180 barometric pressure
+                // "13V" -- display the BH1750 ambient light
+                // "14V" -- display the DS18B20 temperature (not in MULTI_DS18B20_SUPPORT mode)
+                // "15V" -- display the current time (in UTC)
+                // "16V" -- display the current RSSI value
+                if (arg >= 0 && arg < ARRAY_SIZZE(builtin_value))
+                {
+                    display_string(builtin_value[arg]->value(arg2));
+                }
+                break;
+
+            case 'E':
+                // Eval.  Similar to 'V', but only handles the 10
+                // user-defined values.  Expects the value to contain
+                // a format string, and interprets it.
+                if (arg >= 0 && arg < 10)
+                {
+                    String s = builtin_value[arg]->value(arg2);
+                    draw(s.c_str());
+                }
+                break;
+
+            case '{':
+                // Conditional screen.  The display will cycle through
+                // N different screens.
+                //
+                // "0{...}" or "{...}": render "..." on screen 0 only
+                // "1{...}": render "..." on screen 1 only
+                // "2{...}": render "..." on screen 2 only
+                // ... (any number of screens are supported)
+                // "-1{...}": allocate a new screen number and render "..."
+                //       on that screen only.
+                //
+                // The highest N found in the format determines how
+                // many screens there will be.  The value "-1" is
+                // special and always allocates a new screen.
+                //
+                // Example: "6HHello 1{5Hworld}2{3Hsky}1H." will
+                // alternate between displaying "Hello world." and
+                // "Hello sky."
+                //
+                // Actually, there can be multiple independent screen
+                // sets.  By default, screen set 0 is used.  Write
+                // "1,2{...}" to work with screen set 1 instead.  Having
+                // multiple screen sets allows to alternate between
+                // e.g. 2 screens on one row, and 3 screens on another
+                // row.  For example, to alternate between temperature
+                // and humidity on row 2, and time, light and pressure
+                // on row 3, one might use something like this
+                // (newlines added for increased readability):
+                //
+                //   2h
+                //   1,1{6HTemp: 10V}
+                //   1,2{10HHumidity: 11V}
+                //   3h
+                //   2,1{15V}
+                //   2,2{13V3H lx}
+                //   2,3{12V5H mmHg}
+                {
+                    if (arg2 < 0 || arg2 > 9)
+                        break;
+
+                    bool saved_screen_active = screen_active;
+
+                    if (active)
+                    {
+                        if (arg == -1)
+                            arg = screens[arg2] + 1;
+
+                        screens[arg2] = max(arg, screens[arg2]);
+                        screen_active = current_screen[arg2] == arg;
+                    }
+                    else
+                    {
+                        screen_active = false;
+                    }
+                    set_active();
+                    cmd = draw(cmd);
+                    screen_active = saved_screen_active;
+                    set_active();
+                }
+
+                break;
+
+            case '?':
+                // Conditional rendering.  If value N is set, render
+                // the part until the next colon.  Otherwise, render
+                // the part after the colon.  Resume unconditional
+                // rendering after semicolon.  The colon part is
+                // optional.
+                //
+                // If two values are given, render the part until the
+                // next colon if at least one of the values are set.
+                // For example, "5,7?3Hyes;" would print "yes" if
+                // user-defined value 5 or user-defined value 7 (or
+                // both) are set.
+                //
+                // Example: "5HTemp 14?14V:10V;1H." would display the
+                // DS18B20 temperature, if available, otherwise the
+                // DHT22 temperature.
+                //
+                // The numbers are the same as used by the V command,
+                // which see.
+                if (active)
+                {
+                    bool saved_active = cond_active;
+                    cond_active = false;
+                    if (arg >= 0
+                        && arg < ARRAY_SIZZE(builtin_value)
+                        && builtin_value[arg]->available())
+                    {
+                        cond_active = true;
+                    }
+                    if (have_arg2
+                        && arg2 >= 0
+                        && arg2 < ARRAY_SIZZE(builtin_value)
+                        && builtin_value[arg2]->available())
+                    {
+                        cond_active = true;
+                    }
+
+                    set_active();
+                    cmd = draw(cmd);
+                    cond_active = saved_active;
+                    set_active();
+                }
+                else
+                {
+                    bool saved_disabled = cond_disabled;
+                    bool saved_cond_active = cond_active;
+                    cond_disabled = true;
+                    set_active();
+                    cmd = draw(cmd);
+                    cond_disabled = saved_disabled;
+                    cond_active = saved_cond_active;
+                    set_active();
+                }
+                break;
+
+            case ':':
+                cond_active = !cond_active;
+                set_active();
+                break;
+            }
+
+            arg = 0;
+            arg2 = 0;
+            sign = 1;
+            have_arg2 = false;
+        }
+    }
+
+    return cmd;
+}
+
+void Grapher::display_temperature(float temp)
+{
+    display_string(formatTemperature(temp));
+}
+
+void Grapher::display_string(String s)
+{
+    if (active)
+        x += u8g2.drawStr(x, y, s.c_str());
+}
+
+Grapher grapher = Grapher();
+
+// Process graph/N messages.
+//
+// All the graph/N messages are concatenated.  Up to 10 fragments
+// (numbered 0 to 9) can be used.  Together, they form a format string
+// for the display.  See Grapher::draw(const char *cmd) for the
+// available format codes.
+void graph_cmd(const char *frag, const char *cmd)
+{
+    if (*frag >= '0' && *frag <= '9' && frag[1] == '\0')
+        grapher.set_fragment(*frag - '0', cmd);
+    else
+        Serial.println("Received bad graph fragment ID");
+}
+
+String ds18b20_consumer[10] = {
+    String(),
+    String(),
+    String(),
+    String(),
+    String(),
+    String(),
+    String(),
+    String(),
+    String(),
+    String(),
+};
+
+bool ds18b20_include_unit[10] = {
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+};
+
+// Define the content of user-defined value N.  N can be in the range
+// 0 to 9 (inclusive).
+//
+// The supplied MQTT value is a JSON dictionary that defines how the
+// user-defined value should be set.  The following values are
+// currently supported:
+//
+// { "v": "some string" }   -- set the value to "some string".
+// { "ds18b20": "hex id" }  -- each time the DS18B20 sensor with the
+//                             specified hex id is read, store the
+//                             numeric value in the user-defined
+//                             value.  Only works if
+//                             MULTI_DS18B20_SUPPORT is enabled.
+// { "ds18b20": "hex id": "include-unit": true }
+//                          -- Like above, but also store the unit
+//                             ("°C" or "F") in the value.
+void value_cmd(const char *frag, const char *cmd)
+{
+    if (*frag >= '0' && *frag <= '9' && frag[1] == '\0')
+    {
+        int reg = *frag - '0';
+        DynamicJsonDocument json(1024);
+        auto error = deserializeJson(json, cmd);
+        if (error)
+        {
+            Serial.println("No success decoding JSON.");
+        }
+        else if (json.containsKey("v"))
+        {
+            static_cast<StringValue*>(builtin_value[reg])
+                ->set_value(json["v"]);
+            ds18b20_consumer[reg] = String();
+            need_redraw = true;
+        }
+        else if (json.containsKey("ds18b20"))
+        {
+            ds18b20_consumer[reg] = String(json["ds18b20"]);
+            ds18b20_include_unit[reg] = json.containsKey("include-unit")
+                && !!json["include-unit"];
+        }
+        else
+        {
+            Serial.println("Bad value specification.");
+        }
+    }
+    else
+    {
+        Serial.println("Received bad value fragment ID");
+    }
+}
+
 void load_calibration()
 {
     if (!SPIFFS.exists("/calibration.json"))
@@ -1416,9 +2270,6 @@ void setup()
     uptime.m = 0;
     uptime.s = 0;
 
-    strcpy(mqtt_line1, "");
-    strcpy(mqtt_line2, "");
-    strcpy(mqtt_line3, "");
     need_redraw = true;
     Serial.begin(115200);
     Serial.println();
@@ -1522,6 +2373,9 @@ void setup()
     sprintf(line1_topic, "cmnd/%s/line1", machineId);
     sprintf(line2_topic, "cmnd/%s/line2", machineId);
     sprintf(line3_topic, "cmnd/%s/line3", machineId);
+    sprintf(display_topic, "cmnd/%s/display", machineId);
+    sprintf(graph_topic, "cmnd/%s/graph/+", machineId);
+    sprintf(value_topic, "cmnd/%s/value/+", machineId);
     sprintf(cmnd_temp_coefficient_topic, "cmnd/%s/tempcoef", machineId);
     sprintf(stat_temp_coefficient_topic, "stat/%s/tempcoef", machineId);
 #ifndef MULTI_DS18B20_SUPPORT
@@ -1984,7 +2838,7 @@ void processMessageScale(const char *text)
         strcpy(temp_scale, "fahrenheit");
     }
     // Force default sensor lines with the new format for temperature
-    setDefaultSensorLines();
+    printDHT22();
     need_redraw = true;
     // Save configurations to file
     saveConfig();
@@ -2003,20 +2857,36 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
 
     if (strcmp(topic, line1_topic) == 0)
     {
-        snprintf(mqtt_line1, sizeof(mqtt_line1), "%s", text);
+        udv0.set_value(text);
         need_redraw = true;
     }
 
     if (strcmp(topic, line2_topic) == 0)
     {
-        snprintf(mqtt_line2, sizeof(mqtt_line2), "%s", text);
+        udv1.set_value(text);
         need_redraw = true;
     }
 
     if (strcmp(topic, line3_topic) == 0)
     {
-        snprintf(mqtt_line3, sizeof(mqtt_line3), "%s", text);
+        udv2.set_value(text);
         need_redraw = true;
+    }
+
+    if (strcmp(topic, display_topic) == 0)
+    {
+        grapher.set_default_program(atoi(text));
+        need_redraw = true;
+    }
+
+    if (strncmp(topic, graph_topic, strlen(graph_topic) - 1) == 0)
+    {
+        graph_cmd(topic + strlen(graph_topic) - 1, text);
+    }
+
+    if (strncmp(topic, value_topic, strlen(value_topic) - 1) == 0)
+    {
+        value_cmd(topic + strlen(value_topic) - 1, text);
     }
 
     if (strcmp(topic, cmnd_temp_coefficient_topic) == 0)
@@ -2392,6 +3262,7 @@ void handleBH1750()
     {
         // Print new brightness value
         sensorAmbientLight = tempAmbientLight;
+        bh1750_light.set_value(String(sensorAmbientLight));
         Serial.print("Light: ");
         Serial.print(tempAmbientLight);
         Serial.println("Lux");
@@ -2454,6 +3325,7 @@ void handleBMP()
     Serial.println(formatTemperature(temperature));
 
     sensorBaPressure = event.pressure;
+    bmp180_pressure.set_value(String(round(sensorBaPressure), 0));
 
     // Publish new pressure values through MQTT
     publishSensorData(MQTT_BMP180, "BMPpressure", "BMPpressure", sensorBaPressure);
@@ -2483,7 +3355,6 @@ void handleBMP()
 
 void handleSensors()
 {
-    i2cSensorToShow = NONE;
     if (isSensorAvailable(sensorHTU21D))
     {
         handleHTU21D();
@@ -2495,7 +3366,6 @@ void handleSensors()
 
     if (isSensorAvailable(sensorBMP180))
     {
-        i2cSensorToShow = BMP;
         handleBMP();
     }
     else
@@ -2505,7 +3375,6 @@ void handleSensors()
 
     if (isSensorAvailable(sensorBH1750))
     {
-        i2cSensorToShow = (BMP == i2cSensorToShow) ? BOTH : BH;
         handleBH1750();
     }
     else
@@ -2530,13 +3399,12 @@ String formatTemperature(float temperature)
     return String(convertTemperature(temperature), 1) + unit;
 }
 
-void setDefaultSensorLines()
+void printDHT22()
 {
-    sensor_line1 = "Air " + formatTemperature(dhtTemperature);
-    Serial.println(sensor_line1);
-    sensor_line2 = "Humidity " + String(dhtHumidity, 0) + "%";
-    Serial.println(sensor_line2);
-    sensor_line3 = "";
+    String s = "Air " + formatTemperature(dhtTemperature);
+    Serial.println(s);
+    s = "Humidity " + String(dhtHumidity, 0) + "%";
+    Serial.println(s);
 }
 
 // Update the uptime information.
@@ -2589,31 +3457,6 @@ void publish_uptime()
     char topic[200];
     sprintf(topic, "%s/%s/uptime", workgroup, machineId);
     mqtt_client(MQTT_ESP8266)->publish(topic, payload);
-}
-
-void displaySensorsDataI2C()
-{
-    if (BMP == i2cSensorToShow)
-    {
-        sensor_line3 = "Baro " + String(round(sensorBaPressure), 0) + " hPa";
-    }
-    else if (BH == i2cSensorToShow)
-    {
-        sensor_line3 = "Light " + String(sensorAmbientLight) + " lx";
-    }
-    else if (BOTH == i2cSensorToShow)
-    {
-        static int sensorSelect = 0;
-        switch (++sensorSelect % 2)
-        {
-        case 0:
-            sensor_line3 = "Light " + String(sensorAmbientLight) + " lx";
-            break;
-        default:
-            sensor_line3 = "Baro " + String(round(sensorBaPressure), 0) + " hPa";
-            break;
-        }
-    }
 }
 
 #ifdef MULTI_DS18B20_SUPPORT
@@ -2745,11 +3588,33 @@ void ConnectedDS18B20::handle_temp(float wtemp)
     float temp = convertTemperature(wtemp);
     Serial.println("DS18B20 " + String(hex_addr) + ":" + temp);
     publishSensorData(client(), topic.c_str(), "temperature", temp);
+
+    for (int reg = 0; reg < 10; reg++)
+    {
+        if (same_addr(ds18b20_consumer[reg]))
+        {
+            String v;
+            if (ds18b20_include_unit[reg])
+                v = formatTemperature(wtemp);
+            else
+                v = String(temp, 1);
+
+            static_cast<StringValue*>(builtin_value[reg])->set_value(v);
+        }
+    }
 }
 
 bool ConnectedDS18B20::same_addr(const uint8_t (&addr)[addr_size])
 {
     return memcmp(raw_addr, &addr, sizeof raw_addr) == 0;
+}
+
+bool ConnectedDS18B20::same_addr(const String &addr)
+{
+    if (addr.length() != 2 * ConnectedDS18B20::addr_size)
+        return false;
+
+    return memcmp(hex_addr, addr.c_str(), 2 * ConnectedDS18B20::addr_size) == 0;
 }
 
 #if defined(MQTT_MODE_MULTIPLE) || defined(MQTT_MODE_MIXED)
@@ -2759,12 +3624,21 @@ void ConnectedDS18B20::publish_online()
 }
 #endif
 
-#ifdef MQTT_MODE_MIXED
 void ConnectedDS18B20::publish_offline()
 {
+#ifdef MQTT_MODE_MIXED
+    // We only need to publish the offline status explicitly in
+    // MQTT_MODE_MIXED.  In MQTT_MODE_SINGLE, we don't provide an
+    // availability status.  In MQTT_MODE_MULTIPLE, the
+    // last-will-and-testament will cause the MQTT broker to publish
+    // the offline message when we close the TCP connection.
     client()->publish(availability_topic.c_str(), "offline", true);
-}
 #endif
+
+    for (int reg = 0; reg < 10; reg++)
+        if (same_addr(ds18b20_consumer[reg]))
+            builtin_value[reg]->unset();
+}
 
 DS18B20Registry::DS18B20Registry()
     : online(nullptr), unprobed(nullptr)
@@ -2809,15 +3683,7 @@ bool DS18B20Registry::loop()
     while (unprobed != NULL)
     {
         ConnectedDS18B20 *next = unprobed->next;
-#ifdef MQTT_MODE_MIXED
-        // We only need to publish the offline status explicitly in
-        // MQTT_MODE_MIXED.  In MQTT_MODE_SINGLE, we don't provide an
-        // availability status.  In MQTT_MODE_MULTIPLE, the
-        // last-will-and-testament will cause the MQTT broker to
-        // publish the offline message when we close the TCP
-        // connection.
         unprobed->publish_offline();
-#endif
         delete unprobed;
         unprobed = next;
     }
@@ -2898,12 +3764,12 @@ bool handle_ds18b20()
 
     wtemp = wtemp * dsTemperatureCoef;
     dsTemperature = wtemp;
+    ds18b20_temp.set_value(wtemp);
     mqtt_online(MQTT_DS18B20);
     publishSensorData(MQTT_DS18B20, "water/temperature",
                       "temperature",
                       convertTemperature(wtemp));
-    sensor_line3 = "Water " + formatTemperature(dsTemperature);
-    Serial.println(sensor_line3);
+    Serial.println("Water " + formatTemperature(dsTemperature));
     return true;
 #endif
 }
@@ -2971,7 +3837,9 @@ void loop()
             temp = temp * temperatureCoef;
 
             dhtTemperature = temp;
+            dht22_temp.set_value(temp);
             dhtHumidity = humidity;
+            dht22_humidity.set_value(String(dhtHumidity, 0));
             publishSensorData(MQTT_DHT22, "air/temperature", "temperature",
                               convertTemperature(temp));
             publishSensorData(MQTT_DHT22, "air/humidity", "humidity", humidity);
@@ -2987,7 +3855,7 @@ void loop()
             mqtt_status(MQTT_DHT22)->offline();
         }
 
-        setDefaultSensorLines();
+        printDHT22();
 
         long rssiValue = WiFi.RSSI();
         String rssi = "WiFi " + String(rssiValue) + " dBm";
@@ -3005,27 +3873,9 @@ void loop()
             mqtt_status(MQTT_DS18B20)->offline();
             sensors.begin(); // Probe for hotplugged DS18B20 sensor.
 #endif
-
-            if (NONE != i2cSensorToShow)
-            {
-                displaySensorsDataI2C();
-            }
-            else
-            {
-                static int select = 0;
-                switch (++select % 2)
-                {
-                case 0:
-                    timeClient.update();
-                    sensor_line3 = "UTC: " + timeClient.getFormattedTime();
-                    break;
-                default:
-                    sensor_line3 = rssi;
-                    break;
-                }
-            }
         }
 
+        grapher.cycle_screen();
         need_redraw = true;
 
         publishSensorData(MQTT_ESP8266, "wifi/ssid", "ssid", WiFi.SSID());
@@ -3049,9 +3899,7 @@ void loop()
 
     if (need_redraw)
     {
-        drawDisplay(mqtt_line1[0] ? mqtt_line1 : sensor_line1.c_str(),
-                    mqtt_line2[0] ? mqtt_line2 : sensor_line2.c_str(),
-                    mqtt_line3[0] ? mqtt_line3 : sensor_line3.c_str());
+        grapher.draw();
         need_redraw = false;
     }
 
