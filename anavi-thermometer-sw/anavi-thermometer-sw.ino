@@ -1201,14 +1201,14 @@ void drawDisplay(const char *line1, const char *line2 = "", const char *line3 = 
     // Set appropriate font
     if (true == smallSize)
     {
-        u8g2.setFont(u8g2_font_ncenR10_tr);
+        u8g2.setFont(u8g2_font_ncenR10_tf);
         u8g2.drawStr(0, 14, line1);
         u8g2.drawStr(0, 39, line2);
         u8g2.drawStr(0, 60, line3);
     }
     else
     {
-        u8g2.setFont(u8g2_font_ncenR14_tr);
+        u8g2.setFont(u8g2_font_ncenR14_tf);
         u8g2.drawStr(0, 14, line1);
         u8g2.drawStr(0, 39, line2);
         u8g2.drawStr(0, 64, line3);
@@ -1404,16 +1404,16 @@ const char *Grapher::builtin_programs[] = {
     //     UTC and WiFi
 
     // First line: user-defined value 0 or Air.
-    "C1h0?0V:4HAir 10V;"
+    "C1h0?0V:[Air ]10V;"
 
     // Second line: user-defined value 1 or Humidity.
-    "2h1?1V:9HHumidity 11V1H%;"
+    "2h1?1V:[Humidity ]11V[%];"
 
     // Third line: prio 1: user-defined value 2.
     "3h"
     "2?2V:"
     // Prio 2: water.
-    "14?6HWater 14V:"
+    "14?[Water ]14V:"
     // Prio 3: Baro and/or Light
     "12,13?"
     // We have baro and/or light.
@@ -1421,30 +1421,30 @@ const char *Grapher::builtin_programs[] = {
     // We have baro (and perhaps light)
     "13?"
     // We have both baro and light.
-    "0{5HBaro 12V4H hPa}"
-    "1{6HLight 13V3H lx}:"
+    "0{[Baro ]12V[ hPa]}"
+    "1{[Light ]13V[ lx]}:"
     // We have only baro
-    "5HBaro 12V4H hPa;"
+    "[Baro ]12V[ hPa];"
     ":"
     // We have light (but not baro)
-    "6HLight 13V3H lx;"
+    "[Light ]13V[ lx];"
     ":"
     // Prio 4: UTC and WiFi
-    "0{4HUTC 15V}1{5HWiFi 16V4H dBm};"
+    "0{[UTC ]15V}1{[WiFi ]16V[ dBm]};"
     ";"
     ";",
 
     // 1: Big temperature.
-    "C0f1h9HHumidity 11V"
-    "3h2f1,10V",
+    "C0f1h[Humidity ]11?11V:[-];"
+    "3h2f10?1,10V:[-];",
 
     // 2: Display "everything".
     // Line 1: Air/Humidity/Water
     // Line 2: Baro/Light
     // Line 3: UTC/WiFi
-    "C1h1,0{4HAir 10V}1,1{9HHumidity 11V}14?1,-1{6HWater 14V};"
-    "2h12?2,-1{5HBaro 12V4H hPa};13?2,-1{6HLight 13V3H lx};"
-    "3h3,0{4HUTC 15V}3,1{5HWiFi 16V4H dBm}",
+    "C1h1,0{[Air ]10?10V:[-];}1,1{[Humidity ]11?11V:[-];}14?1,-1{[Water ]14V};"
+    "2h12?2,-1{[Baro ]12V[ hPa]};13?2,-1{[Light ]13V[ lx]};"
+    "3h3,0{[UTC ]15V}3,1{[WiFi ]16V[ dBm]}",
 
     // 3: Screen test: blank screen.
     "C",
@@ -1518,7 +1518,7 @@ void Grapher::draw()
         screens[ix] = -1;
 
     u8g2.clearBuffer();
-    u8g2.setFont(u8g2_font_ncenR14_tr);
+    u8g2.setFont(u8g2_font_ncenR14_tf);
 
     // Home position.
     x = 0;
@@ -1558,6 +1558,43 @@ void Grapher::cycle_screen()
 void Grapher::set_active()
 {
     active = screen_active && cond_active && !cond_disabled;
+}
+
+const char *de_utf8(char *d, int sz, const char *src, char end)
+{
+    int dest = 0;
+    while (*src && *src != end)
+    {
+        if ((src[0] & 0x80) == 0)
+        {
+            if (*src >= ' ' && *src < 127 && dest < sz)
+                d[dest++] = *src;
+            src++;
+        }
+        else if ((src[0] & 0xe0) == 0xc0
+                 && (src[1] & 0xc0) == 0x80)
+        {
+            int c = ((src[0] & 0x1f) << 6) + (src[1] & 0x3f);
+            if (c >= 128 + 32 && c < 256 && dest < sz)
+                d[dest++] = c;
+            src += 2;
+        }
+        else
+        {
+            src++;
+        }
+    }
+
+    if (dest < sz)
+        d[dest] = '\0';
+    else
+        d[sz-1] = '\0';
+
+    // Skip the terminator, but not if we reached end-of-string.
+    if (*src != '\0')
+        src++;
+
+    return src;
 }
 
 const char *Grapher::draw(const char *cmd)
@@ -1624,15 +1661,15 @@ const char *Grapher::draw(const char *cmd)
                     switch (arg)
                     {
                     case 0:
-                        u8g2.setFont(u8g2_font_ncenR14_tr);
+                        u8g2.setFont(u8g2_font_ncenR14_tf);
                         break;
 
                     case 1:
-                        u8g2.setFont(u8g2_font_ncenB24_tr);
+                        u8g2.setFont(u8g2_font_ncenB24_tf);
                         break;
 
                     case 2:
-                        u8g2.setFont(u8g2_font_logisoso46_tr);
+                        u8g2.setFont(u8g2_font_logisoso46_tf);
                         break;
                     }
                 }
@@ -1641,15 +1678,35 @@ const char *Grapher::draw(const char *cmd)
 
             case 'H':
                 // Print a hollerith-encoded string.
+                // Only ASCII (32-126) are allowed.
                 // "5Hxyzzy" prints "xyzzy".
                 {
                     char s[arg + 1];
                     int ix = 0;
-                    for (; ix < arg && *cmd; ix++)
-                        s[ix] = *cmd++;
+                    for (; ix < arg && *cmd; cmd++)
+                    {
+                        if (*cmd >= ' ' && *cmd < 127)
+                            s[ix++] = *cmd;
+                    }
                     s[ix] = '\0';
                     if (active)
                         x += u8g2.drawStr(x, y, s);
+                    break;
+                }
+
+            case '[':
+                // Print a UTF-8-encoded string, that ends with
+                // "]". Only code points 32-255 are allowed.  A string
+                // can be at most 26 characters, since the display can
+                // only fit 26 "i" characters, and even less of other
+                // characters.  You can't print a "]" character using
+                // this mechanism; use "1H]" if you need one.
+                {
+                    char s[26 + 1];
+                    cmd = de_utf8(s, sizeof(s), cmd, ']');
+                    if (active)
+                        x += u8g2.drawStr(x, y, s);
+
                     break;
                 }
 
@@ -1753,7 +1810,7 @@ const char *Grapher::draw(const char *cmd)
                 if (active)
                 {
                     u8g2.clearBuffer();
-                    u8g2.setFont(u8g2_font_ncenR14_tr);
+                    u8g2.setFont(u8g2_font_ncenR14_tf);
                 }
                 /* FALLTHROUGH */
             case 'h':
@@ -1977,7 +2034,11 @@ void Grapher::display_temperature(float temp)
 void Grapher::display_string(String s)
 {
     if (active)
-        x += u8g2.drawStr(x, y, s.c_str());
+    {
+        char buf[s.length() + 1];
+        de_utf8(buf, sizeof(buf), s.c_str(), '\0');
+        x += u8g2.drawStr(x, y, buf);
+    }
 }
 
 Grapher grapher = Grapher();

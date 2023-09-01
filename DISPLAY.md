@@ -55,6 +55,7 @@ arguments to the command.  They default to 0 unless otherwise noted.
 | *N*`(`...`)` | Repeat ... *N* times. |
 | *N*`f`  | Select font *N*. |
 | *N*`H`... | Display a hollerith-encoded string of ASCII characters. |
+| `[`...`]` | Display a UTF-8-encoded string. |
 | *N*`x` | Set the x coordinate. |
 | *N*`y` | Set the y coordinate. |
 | *N*`X` | Set the x delta.  Used by the '.' and ' ' commands. |
@@ -125,6 +126,12 @@ constant.  To print the string "hello", write `5Hhello`.  That is, the
 `H` command uses the prefix argument as a length (in bytes) and uses
 the following *N* bytes as the value to print.  Only ASCII characters
 in the range 32-126 should be used.
+
+You can also use the `[`...`]` construct to print text.  The bytes
+between `[` and `]` are interpreted as UTF-8 (but only code-points
+32-255 are supported).  It is impossible to print a literal `]`
+character using this method; use "1H]" for that.  Nevertheless, `[` is
+recommended instead of `H` for all other uses.
 
 Text is written at the active cursor position, and the cursor position
 is updated.  Text is always written towards the right, so the
