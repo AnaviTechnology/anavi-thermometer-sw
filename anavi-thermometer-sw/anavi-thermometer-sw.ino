@@ -1338,6 +1338,7 @@ private:
     bool cond_active;
     bool cond_disabled;
     bool active;
+    bool inverted;
     int screens[10];
     int current_screen[10];
     int default_program;
@@ -1348,6 +1349,7 @@ private:
     void display_temperature(float temp);
     String fragments[10];
     static const char *builtin_programs[];
+    void set_invert(bool i);
     void reset_display();
 
 public:
@@ -1472,6 +1474,15 @@ Grapher::Grapher()
     program = String();
 }
 
+void Grapher::set_invert(bool i)
+{
+    if (i == inverted)
+        return;
+
+    u8g2.sendF("c", 0x0a6 + !!i);
+    inverted = i;
+}
+
 void Grapher::set_fragment(int frag_nr, const char *fragment)
 {
     fragments[frag_nr] = String(fragment);
@@ -1492,6 +1503,7 @@ void Grapher::set_fragment(int frag_nr, const char *fragment)
 void Grapher::reset_display()
 {
     need_redraw = true;
+    set_invert(false);
     for (int ix = 0; ix < 10; ix++)
     {
         screens[ix] = -1;
@@ -2013,6 +2025,14 @@ const char *Grapher::draw(const char *cmd)
             case ':':
                 cond_active = !cond_active;
                 set_active();
+                break;
+
+            case 'i':
+                // Invert the display.
+                // "1i": invert.
+                // "0i" or "i": normal mode.
+                if (active)
+                    set_invert(!!arg);
                 break;
             }
 

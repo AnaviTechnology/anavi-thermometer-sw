@@ -70,6 +70,7 @@ arguments to the command.  They default to 0 unless otherwise noted.
 | *N*`h` | Move to the beginning of line *N* (0, 1, 2 or 3) |
 | *N*`c` | Set the contrast.  See `U8g2.setContrast`.
 | *N*`P` | Enable powersave mode if *N* is positive, disable if 0. |
+| *N*`i` | Invert the display if *N* is positive. |
 | *N*`V` | Display the value of sensor *N*. |
 | *N*`E` | Interpret a user-defined value as a format string. |
 | *M*,*N*`{`...`}` | Alternate screen.  See below. |
