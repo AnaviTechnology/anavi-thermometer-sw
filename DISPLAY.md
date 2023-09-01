@@ -267,3 +267,68 @@ conditional rendering:
 ```
 1h12?-1{5HBaro 12V};13?-1{6HLight 13V};
 ```
+
+### Example
+
+The following commands sets up a display format that displays "ANAVI
+Thermometer" and a small thermometer icon on the blue parts of the
+display, and alternates between showing the air temperature, the
+humidity, and the temperature measured by a connected DS18B20 sensor.
+
+It requires the following environment variables to be set:
+
+| Variable | Description |
+| - | - |
+| U | MQTT username |
+| P | MQTT password |
+| SERVER | MQTT server |
+| DEV | ANAVI Thermometer device ID |
+
+```
+# Display the string "ANAVI Thermometer".
+mosquitto_pub \
+    -u "$U" -P "$P" \
+    -h "$SERVER" \
+    -r \
+    -t cmnd/$DEV/graph/1 \
+    -m 'C1f2h2 v    [ANAVI]f3h2 [Thermometer]'
+
+# Display the temperature, humidity, and (if available) DS18B20
+# temperature.  Note that this displays both user value 0 (which is
+# set up below to contain the temperature of a selected DS18B20
+# sensor) and value 14.  Value 0 is only available in builds that use
+# MULTI_DS18B20_SUPPORT, and value 14 is only available in builds
+# without MULTI_DS18B20_SUPPORT.
+#
+# Also, enable the burn-in protection.
+mosquitto_pub \
+    -u "$U" -P "$P" \
+    -h "$SERVER" \
+    -r \
+    -t cmnd/$DEV/graph/2 \
+    -m '5x16y{[Air ]10V}1{[Humid ]11V[%]}?-1{[DS18 ]V};14?-1{[DS18 ]14V};B'
+
+# Draw a little thermometer to the right.
+mosquitto_pub \
+    -u "$U" -P "$P" \
+    -h "$SERVER" \
+    -r \
+    -t cmnd/$DEV/graph/3 \
+    -m '120x40y4.^ <6.^ >7.^.<7.^.>7.^.< 6.^ >  3.^.4(<3.^.>3.^.)4(<.  ^.>.  ^.)< ..'
+
+# Configure which DS18B20 should be displayed.  You will need to
+# change the "28d18f81e3ca3c72" to the ID of your sensor.  This is
+# only needed if the firmware has been compiled with
+# MULTI_DS18B20_SUPPORT enabled.
+mosquitto_pub \
+    -u "$U" -P "$P" \
+    -h "$SERVER" \
+    -r \
+    -t cmnd/$DEV/value/0 \
+    -m '{ "ds18b20": "28d18f81e3ca3c72", "include-unit": true }'
+```
+
+The end result looks like this:
+
+![Photo of a display showing the output of the above display
+format.](demo.jpg).
