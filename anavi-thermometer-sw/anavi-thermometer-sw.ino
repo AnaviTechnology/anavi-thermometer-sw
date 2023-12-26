@@ -364,6 +364,12 @@
 #include <ESP8266WebServer.h>
 #include <WiFiManager.h> //https://github.com/tzapu/WiFiManager
 
+// ArduinoJson 6.19.0 changes the default for this setting to 1.  This
+// leads to serialisations such as {"BMPtemperature":21.20000076}
+// instead of the more sane {"BMPtemperature":21.2}.  The
+// documentation suggests we should use double instead of float, but
+// just restoring the old default value is a simpler fix.
+#define ARDUINOJSON_USE_DOUBLE 0
 #include <ArduinoJson.h> //https://github.com/bblanchon/ArduinoJson
 
 #include <PubSubClient.h> //https://github.com/knolleary/pubsubclient

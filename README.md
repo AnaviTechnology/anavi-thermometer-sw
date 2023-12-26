@@ -13,7 +13,7 @@ You can [build and upload the sketch through the Arduino IDE](https://www.youtub
 The default firmware of ANAVI Thermometer depends on the following Arduino libraries, which must be added in the Arduino IDE before compiling the sketch.
 
 * [WiFiManager by tzapu](https://github.com/tzapu/WiFiManager) (version 0.15.0)
-* [ArduinoJson by Benoit Blanchon](https://arduinojson.org/) (version 6.11.2)
+* [ArduinoJson by Benoit Blanchon](https://arduinojson.org/) (version 6.21.4)
 * [PubSubClient by Nick O'Leary](https://pubsubclient.knolleary.net/) (version 2.7.0)
 * [Adafruit HTU21DF Library by Adafruit](https://github.com/adafruit/Adafruit_HTU21DF_Library) (version 1.0.1)
 * [Adafruit APDS9960 Library by Adafruit](https://github.com/adafruit/Adafruit_APDS9960) (version 1.0.5)
