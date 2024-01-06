@@ -17,7 +17,7 @@ The default firmware of ANAVI Thermometer depends on the following Arduino libra
 * [PubSubClient by Nick O'Leary](https://pubsubclient.knolleary.net/) (version 2.7.0)
 * [Adafruit BusIO by Adafruit](https://github.com/adafruit/Adafruit_BusIO) (version 1.14.5)
 * [Adafruit HTU21DF Library by Adafruit](https://github.com/adafruit/Adafruit_HTU21DF_Library) (version 1.1.2)
-* [Adafruit APDS9960 Library by Adafruit](https://github.com/adafruit/Adafruit_APDS9960) (version 1.0.5)
+* [Adafruit APDS9960 Library by Adafruit](https://github.com/adafruit/Adafruit_APDS9960) (version 1.2.5)
 * [DHT sensor library by Adafruit](https://github.com/adafruit/DHT-sensor-library) (version 1.3.4)
 * [U8g2 by oliver](https://github.com/olikraus/u8g2) (version 2.34.22)
 * [OneWire](https://github.com/PaulStoffregen/OneWire) (version 2.3.5)
