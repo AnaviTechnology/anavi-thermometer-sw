@@ -24,4 +24,4 @@ The default firmware of ANAVI Thermometer depends on the following Arduino libra
 * [DallasTemperature](https://github.com/milesburton/Arduino-Temperature-Control-Library) (version 3.9.0)
 * [Adafruit Unified Sensor by Adafruit](https://github.com/adafruit/Adafruit_Sensor) (version 1.1.14)
 * [Adafruit BMP085 Unified](https://github.com/adafruit/Adafruit_BMP085_Unified) (version 1.1.3)
-* [NTPClient by Fabrice Weinberg](https://github.com/arduino-libraries/NTPClient) (version 3.1.0)
+* [NTPClient by Fabrice Weinberg](https://github.com/arduino-libraries/NTPClient) (version 3.2.1)
