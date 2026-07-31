@@ -423,6 +423,12 @@ const int pinButton = 0;
 unsigned long sensorPreviousMillis = 0;
 const long sensorInterval = 10000;
 
+// A stuck DHT22 can return a checksum-valid frame containing only zeroes.
+// Treat several consecutive all-zero frames as a sensor failure instead of
+// replacing the last valid measurement with 0 C and 0% humidity.  See #49.
+const uint8_t dht22ZeroReadRestartThreshold = 3;
+uint8_t dht22ConsecutiveZeroReadings = 0;
+
 bool haveButton = false;
 
 class ButtonState
@@ -3995,8 +4001,31 @@ void loop()
         digitalWrite(DHTPIN, LOW);
 #endif
 
-        if (!isnan(humidity) && !isnan(temp))
+        const bool dht22ReadSucceeded = !isnan(humidity) && !isnan(temp);
+        const bool dht22ReadAllZeroes = dht22ReadSucceeded &&
+                                        temp == 0.0f && humidity == 0.0f;
+
+        if (dht22ReadAllZeroes)
         {
+            if (dht22ConsecutiveZeroReadings < dht22ZeroReadRestartThreshold)
+                dht22ConsecutiveZeroReadings++;
+
+            Serial.print("DHT22 returned an all-zero reading (");
+            Serial.print(dht22ConsecutiveZeroReadings);
+            Serial.print("/");
+            Serial.print(dht22ZeroReadRestartThreshold);
+            Serial.println("). Keeping the last valid measurement.");
+            mqtt_status(MQTT_DHT22)->offline();
+
+            if (dht22ConsecutiveZeroReadings >= dht22ZeroReadRestartThreshold)
+            {
+                Serial.println("DHT22 remains stuck. Restarting to recover it.");
+                nice_restart();
+            }
+        }
+        else if (dht22ReadSucceeded)
+        {
+            dht22ConsecutiveZeroReadings = 0;
             mqtt_online(MQTT_DHT22);
 
             // Adjust temperature depending on the calibration coefficient
@@ -4018,6 +4047,7 @@ void loop()
         }
         else
         {
+            dht22ConsecutiveZeroReadings = 0;
             mqtt_status(MQTT_DHT22)->offline();
         }
 
